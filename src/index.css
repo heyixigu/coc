@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Noto+Serif+SC:wght@400;600&display=swap');
+
+:root {
+  --bg-deep: #0a0908;
+  --bg-panel: #12100e;
+  --bg-chat: #0f0e0c;
+  --bg-input: #181612;
+  --border: #2a241c;
+  --border-soft: #1f1c18;
+  --border-strong: #3a3228;
+  --border-gm: #243028;
+  --border-player: #352a22;
+  --ink: #c9bba8;
+  --ink-bright: #e8dcc8;
+  --ink-muted: #7a6f62;
+  --accent-dim: #4a5a4e;
+  --link: #8a9a8e;
+  --danger: #c98a7a;
+  --danger-border: #5c3a32;
+
+  font-family: 'Noto Serif SC', 'Crimson Text', 'Times New Roman', serif;
+  line-height: 1.45;
+  font-weight: 400;
+  color: var(--ink);
+  background-color: var(--bg-deep);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+#root {
+  min-height: 0;
+}

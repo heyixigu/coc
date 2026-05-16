@@ -1,0 +1,380 @@
+.prologue-root {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: #050505;
+  color: #e8dcc8;
+  font-family: 'Songti SC', 'Noto Serif SC', 'SimSun', serif;
+  overflow: hidden;
+}
+
+.prologue-root.prologue-fade-in {
+  animation: prologueFadeIn 0.85s ease forwards;
+}
+
+.prologue-root.prologue-fade-out {
+  animation: prologueFadeOut 0.7s ease forwards;
+}
+
+@keyframes prologueFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes prologueFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.prologue-inner {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: 42rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 1.25rem;
+  box-sizing: border-box;
+}
+
+.prologue-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.prologue-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.prologue-scroll::-webkit-scrollbar-thumb {
+  background: rgba(232, 220, 200, 0.15);
+}
+
+.prologue-paragraph {
+  margin: 0 0 1.25rem;
+  font-size: 1.05rem;
+  line-height: 1.85;
+  letter-spacing: 0.06em;
+  color: #ebe0c8;
+  text-shadow: 0 0 24px rgba(200, 170, 120, 0.08);
+}
+
+.prologue-char {
+  display: inline;
+  animation: prologueCharIn 0.55s ease forwards;
+  opacity: 0;
+}
+
+@keyframes prologueCharIn {
+  from {
+    opacity: 0;
+    color: #8a7a62;
+  }
+  to {
+    opacity: 1;
+    color: #ebe0c8;
+  }
+}
+
+.prologue-stream {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.85;
+  letter-spacing: 0.06em;
+  color: #ebe0c8;
+  white-space: pre-wrap;
+}
+
+.prologue-stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: rgba(232, 220, 200, 0.45);
+  vertical-align: text-bottom;
+  animation: prologueBlink 0.9s step-end infinite;
+}
+
+@keyframes prologueBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.prologue-footer {
+  flex-shrink: 0;
+  padding-top: 1.25rem;
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.prologue-btn {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.55rem 1.4rem;
+  border: 1px solid rgba(200, 170, 120, 0.35);
+  border-radius: 2px;
+  background: rgba(20, 18, 14, 0.85);
+  color: #e8dcc8;
+  letter-spacing: 0.2em;
+  font-size: 0.9rem;
+  transition:
+    border-color 0.25s,
+    background 0.25s,
+    color 0.25s;
+}
+
+.prologue-btn:hover:not(:disabled) {
+  border-color: rgba(220, 190, 140, 0.55);
+  background: rgba(36, 30, 22, 0.95);
+  color: #faf3e4;
+}
+
+.prologue-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.prologue-btn-primary {
+  border-color: rgba(180, 140, 90, 0.5);
+  background: rgba(48, 38, 26, 0.9);
+}
+
+.prologue-btn-ghost {
+  margin-top: 1.5rem;
+  border-color: transparent;
+  background: transparent;
+  color: rgba(160, 145, 120, 0.5);
+  letter-spacing: 0.1em;
+  font-size: 0.78rem;
+}
+
+.prologue-btn-ghost:hover:not(:disabled) {
+  color: rgba(200, 180, 150, 0.75);
+  border-color: rgba(120, 100, 75, 0.25);
+  background: transparent;
+}
+
+.prologue-phase2-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.25em;
+  color: #d4c4a8;
+  text-align: center;
+}
+
+.prologue-phase2-sub {
+  margin: 0 0 1.5rem;
+  font-size: 0.82rem;
+  color: rgba(200, 180, 150, 0.55);
+  text-align: center;
+  letter-spacing: 0.12em;
+}
+
+.prologue-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.prologue-card {
+  text-align: left;
+  cursor: pointer;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(120, 100, 75, 0.35);
+  border-radius: 3px;
+  background: rgba(12, 11, 9, 0.92);
+  color: inherit;
+  font: inherit;
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s,
+    background 0.25s;
+}
+
+.prologue-card:hover {
+  border-color: rgba(180, 150, 110, 0.45);
+}
+
+.prologue-card-selected {
+  border-color: rgba(210, 175, 120, 0.75);
+  box-shadow: 0 0 0 1px rgba(210, 175, 120, 0.25);
+  background: rgba(28, 24, 18, 0.95);
+}
+
+.prologue-card-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: #f0e6d0;
+}
+
+.prologue-card-summary {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: rgba(220, 205, 180, 0.78);
+}
+
+.prologue-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.prologue-tag {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgba(140, 120, 90, 0.35);
+  border-radius: 2px;
+  color: rgba(200, 180, 150, 0.75);
+  letter-spacing: 0.08em;
+}
+
+.prologue-loading {
+  text-align: center;
+  padding: 3rem 0;
+  color: rgba(200, 180, 150, 0.5);
+  letter-spacing: 0.15em;
+  font-size: 0.9rem;
+}
+
+.prologue-error {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(140, 70, 60, 0.5);
+  background: rgba(40, 18, 14, 0.5);
+  color: #e8b4ac;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.prologue-paragraph-frozen {
+  opacity: 0.92;
+}
+
+@media (max-width: 767px) {
+  .prologue-inner {
+    padding: 2rem 1.25rem 1rem;
+    text-align: center;
+  }
+
+  .prologue-scroll {
+    text-align: center;
+  }
+
+  .prologue-paragraph,
+  .prologue-stream {
+    font-size: 1.12rem;
+    line-height: 1.9;
+  }
+
+  .prologue-phase2-title {
+    font-size: 1.2rem;
+  }
+
+  .prologue-phase2-sub {
+    font-size: 0.9rem;
+  }
+
+  .prologue-cards {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .prologue-card {
+    text-align: center;
+  }
+
+  .prologue-card-tags {
+    justify-content: center;
+  }
+
+  .prologue-api-key-screen {
+    max-width: none;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  .prologue-api-title {
+    font-size: 1.75rem;
+  }
+
+  .prologue-api-field input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .prologue-btn {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+}
+
+.prologue-api-key-screen {
+  justify-content: center;
+  text-align: center;
+  max-width: 26rem;
+}
+
+.prologue-api-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.6rem;
+  font-weight: 500;
+  letter-spacing: 0.35em;
+  color: #ebe0c8;
+}
+
+.prologue-api-sub {
+  margin: 0 0 2rem;
+  font-size: 0.88rem;
+  color: rgba(200, 180, 150, 0.55);
+  letter-spacing: 0.15em;
+}
+
+.prologue-api-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-align: left;
+  font-size: 0.82rem;
+  color: rgba(200, 180, 150, 0.65);
+  letter-spacing: 0.08em;
+}
+
+.prologue-api-field input {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(120, 100, 75, 0.4);
+  border-radius: 2px;
+  background: rgba(12, 11, 9, 0.95);
+  color: #ebe0c8;
+}
+
+.prologue-api-field input:focus {
+  outline: none;
+  border-color: rgba(180, 150, 110, 0.55);
+}
+
+.prologue-api-hint {
+  margin: 1rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: rgba(160, 145, 120, 0.45);
+}
