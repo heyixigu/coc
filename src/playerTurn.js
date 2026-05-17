@@ -1,8 +1,9 @@
 import { JUDGE_SYSTEM_PROMPT } from './config/judge_prompt.js'
 import { GM_PRE_ROLL_NARRATIVE_ADDENDUM, GM_SYSTEM_PROMPT } from './config/system_prompt.js'
 import { postChatNonStream } from './deepseek.js'
-import { runGmStreamWithRolls } from './gmRollLoop.js'
 import { buildPreRollSystemContent, resolveSkillChecks } from './resolveTurnRolls.js'
+import { buildEphemeralItemMessages } from './itemInject.js'
+import { applyPlayerSkillValues, buildEphemeralSkillReferenceMessages } from './playerSkills.js'
 import { parseJudgeSkillsJson } from './skillJudge.js'
 
 function uid() {
@@ -10,18 +11,32 @@ function uid() {
 }
 
 /**
- * 玩家回合：裁判 → 客户端投骰 → 带结果流式叙述（[ROLL] 仅作流式备用）
+ * @typedef {import('./deepseek.js').ChatMsg} ChatMsg
+ * @typedef {(opts: {
+ *   apiKey: string,
+ *   systemText: string,
+ *   chain: ChatMsg[],
+ *   gmId: string,
+ *   gmTs: number,
+ *   signal?: AbortSignal,
+ * }) => Promise<boolean>} PresentGmFn
+ */
+
+/**
+ * 玩家回合：裁判 → 客户端投骰 → 非流式 GM + 打字机呈现
  * @param {object} o
  * @param {string} o.apiKey
- * @param {import('./deepseek.js').ChatMsg[]} o.snap
- * @param {import('./deepseek.js').ChatMsg} o.userMsg
+ * @param {ChatMsg[]} o.snap
+ * @param {ChatMsg} o.userMsg
  * @param {string} o.gmId
  * @param {number} o.gmTs
  * @param {React.Dispatch<React.SetStateAction<any[]>>} o.setMessages
  * @param {React.Dispatch<React.SetStateAction<any[]>>} o.setDiceLog
- * @param {(id: string | null) => void} o.setActiveStreamGmId
- * @param {(gmText: string) => void} [o.onGmRoundComplete]
+ * @param {React.Dispatch<React.SetStateAction<import('./skillJudge.js').SkillCheck[]>>} o.setPendingChecks
+ * @param {PresentGmFn} o.presentGm
+ * @param {() => { playerItems: string[], partnerItems: string[], sceneItems: string[] }} o.getInventory
  * @param {number} o.fallbackSkill
+ * @returns {Promise<boolean>}
  */
 export async function runPlayerTurn({
   apiKey,
@@ -31,10 +46,12 @@ export async function runPlayerTurn({
   gmTs,
   setMessages,
   setDiceLog,
-  setActiveStreamGmId,
-  onGmRoundComplete,
+  setPendingChecks,
+  presentGm,
+  getInventory,
   fallbackSkill = 50,
 }) {
+  void fallbackSkill
   const key = apiKey.trim()
   const actionText = userMsg.content
 
@@ -46,10 +63,18 @@ export async function runPlayerTurn({
     ],
   })
 
-  const skills = parseJudgeSkillsJson(judgeRaw)
+  const skills = applyPlayerSkillValues(parseJudgeSkillsJson(judgeRaw))
   const preSystemMessages = []
+  const inv = typeof getInventory === 'function' ? getInventory() : { playerItems: [], partnerItems: [], sceneItems: [] }
+  const ephemeralItemMessages = buildEphemeralItemMessages(inv)
+  const ephemeralSkillMessages = buildEphemeralSkillReferenceMessages(skills.map((s) => s.skill))
 
   if (skills.length > 0) {
+    setPendingChecks(skills)
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    })
+
     const { lines, outcomes } = resolveSkillChecks(skills)
     const sysTs = Date.now()
     const sysContent = buildPreRollSystemContent(lines)
@@ -73,29 +98,31 @@ export async function runPlayerTurn({
       return [...entries, ...prev].slice(0, 5)
     })
 
+    setPendingChecks([])
+  } else {
+    setPendingChecks([])
   }
 
   setMessages((prev) => {
     const out = [...prev]
     if (preSystemMessages.length) out.push(...preSystemMessages)
-    out.push({ id: gmId, role: 'gm', content: '', ts: gmTs })
     return out
   })
-  setActiveStreamGmId(gmId)
 
   const systemText = `${GM_SYSTEM_PROMPT}\n\n${GM_PRE_ROLL_NARRATIVE_ADDENDUM}`
+  const chain = [
+    ...snap,
+    userMsg,
+    ...ephemeralItemMessages,
+    ...ephemeralSkillMessages,
+    ...preSystemMessages,
+  ]
 
-  await runGmStreamWithRolls({
+  return presentGm({
     apiKey: key,
     systemText,
-    snap,
-    userMsg,
-    preSystemMessages,
+    chain,
     gmId,
     gmTs,
-    setMessages,
-    setDiceLog,
-    onGmRoundComplete,
-    fallbackSkill,
   })
 }

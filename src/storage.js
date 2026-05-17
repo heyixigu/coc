@@ -1,6 +1,6 @@
 export const STORAGE_KEY = 'coc-simulator-state-v1'
 
-/** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number }} ChatMessage */
+/** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number, isSummary?: boolean }} ChatMessage */
 /** @typedef {'extreme' | 'success' | 'fail' | 'fumble'} D100Outcome */
 /** @typedef {{ id: string, skillName: string, value: number, dice: string, outcome: D100Outcome | null, judgeText: string, ts: number }} DiceLogEntry */
 /** @typedef {{ name: string, hp: number, mp: number, san: number, talisman: number }} PlayerChar */
@@ -16,7 +16,11 @@ export const STORAGE_KEY = 'coc-simulator-state-v1'
  *   diceLog: DiceLogEntry[],
  *   prologueComplete: boolean,
  *   selectedScenario: SelectedScenario | null,
- *   scenarioTitle: string | null
+ *   scenarioTitle: string | null,
+ *   playerTurnCount: number,
+ *   playerItems: string[],
+ *   partnerItems: string[],
+ *   sceneItems: string[]
  * }} AppState
  */
 
@@ -89,6 +93,45 @@ export function defaultState() {
     prologueComplete: false,
     selectedScenario: null,
     scenarioTitle: null,
+    playerTurnCount: 0,
+    playerItems: [],
+    partnerItems: [],
+    sceneItems: [],
+  }
+}
+
+/** @param {unknown} raw */
+function normalizeItemList(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const t = item.trim().slice(0, 64)
+    if (t) out.push(t)
+  }
+  return out.slice(0, 48)
+}
+
+/** @param {unknown} raw */
+function normalizePlayerTurnCount(raw) {
+  const n = Number.parseInt(String(raw ?? 0), 10)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+/** @param {unknown} m */
+function normalizeChatMessage(m) {
+  if (!m || typeof m !== 'object') return null
+  const o = /** @type {Record<string, unknown>} */ (m)
+  const role = o.role
+  if (typeof role !== 'string' || !['gm', 'player', 'system'].includes(role)) return null
+  const id = typeof o.id === 'string' ? o.id : ''
+  if (!id) return null
+  return {
+    id,
+    role: /** @type {'gm' | 'player' | 'system'} */ (role),
+    content: typeof o.content === 'string' ? o.content : '',
+    ts: typeof o.ts === 'number' && Number.isFinite(o.ts) ? o.ts : Date.now(),
+    ...(o.isSummary === true ? { isSummary: true } : {}),
   }
 }
 
@@ -135,13 +178,7 @@ export function loadState() {
     const parsed = JSON.parse(raw)
     const base = defaultState()
     const messages = Array.isArray(parsed.messages) ? parsed.messages : []
-    const safeMessages = messages.filter(
-      (m) =>
-        m &&
-        typeof m === 'object' &&
-        typeof /** @type {{role?:string}} */ (m).role === 'string' &&
-        ['gm', 'player', 'system'].includes(/** @type {{role:string}} */ (m).role),
-    )
+    const safeMessages = messages.map(normalizeChatMessage).filter(Boolean)
 
     let player = normalizePlayer(parsed.player)
     let partner = normalizePartner(parsed.partner)
@@ -170,6 +207,10 @@ export function loadState() {
         typeof parsed.scenarioTitle === 'string' && parsed.scenarioTitle.trim()
           ? parsed.scenarioTitle.trim().slice(0, 32)
           : null,
+      playerTurnCount: normalizePlayerTurnCount(parsed.playerTurnCount),
+      playerItems: normalizeItemList(parsed.playerItems),
+      partnerItems: normalizeItemList(parsed.partnerItems),
+      sceneItems: normalizeItemList(parsed.sceneItems),
     }
   } catch {
     return defaultState()
@@ -188,6 +229,10 @@ export function saveState(state) {
       prologueComplete: !!state.prologueComplete,
       selectedScenario: state.selectedScenario ?? null,
       scenarioTitle: state.scenarioTitle ?? null,
+      playerTurnCount: normalizePlayerTurnCount(state.playerTurnCount),
+      playerItems: normalizeItemList(state.playerItems),
+      partnerItems: normalizeItemList(state.partnerItems),
+      sceneItems: normalizeItemList(state.sceneItems),
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   } catch {
@@ -217,6 +262,10 @@ export function resetForPrologueReplay(apiKey = '') {
     prologueComplete: false,
     selectedScenario: null,
     scenarioTitle: null,
+    playerTurnCount: 0,
+    playerItems: [],
+    partnerItems: [],
+    sceneItems: [],
   })
 }
 

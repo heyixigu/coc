@@ -1,3 +1,5 @@
+import { extractGmStatusBlock } from './parseGmItems.js'
+
 /**
  * @typedef {{ hp: number, mp: number, san: number, talisman: number }} ParsedPlayerStats
  * @typedef {{ hp: number, mp: number | null, san: number }} ParsedPartnerStats
@@ -18,10 +20,8 @@ function parseIntSafe(m) {
 export function parseGmCurrentStatus(gmText) {
   if (!gmText || typeof gmText !== 'string') return null
 
-  const lineMatch = gmText.match(/【当前状态】[^\n\r]*/)
-  if (!lineMatch) return null
-
-  const line = lineMatch[0]
+  const line = extractGmStatusBlock(gmText)
+  if (!line) return null
   const slashIdx = line.indexOf('/')
   if (slashIdx === -1) return null
 

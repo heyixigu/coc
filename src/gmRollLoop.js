@@ -1,12 +1,18 @@
 import { classifyRollStream, d100OutcomeLabel } from './cocJudge.js'
 import { rollByLabel } from './dice.js'
 import { chainToOpenAiMessages, streamAssistantUntilRollOrEnd } from './deepseek.js'
+import {
+  buildEphemeralSkillReferenceMessages,
+  resolvePlayerSkillValue,
+} from './playerSkills.js'
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 /**
+ * 主流程已改用非流式 + 打字机（见 gmTurn.js / GameApp presentGm）。
+ * 备用流式 [ROLL] 链式续写，当前主流程不引用。
  * 流式生成守密人回复，处理 [ROLL] 链式续写。
  * snap / userMsg 为内部消息格式：role 为 gm | player | system。
  */
@@ -16,6 +22,8 @@ export async function runGmStreamWithRolls({
   snap,
   userMsg,
   preSystemMessages = [],
+  ephemeralSystemMessages = [],
+  ephemeralItemMessages = [],
   gmId,
   gmTs,
   setMessages,
@@ -24,8 +32,11 @@ export async function runGmStreamWithRolls({
   fallbackSkill = 50,
 }) {
   let prefixGm = ''
-  let chainForOpenAi = [...snap, userMsg, ...preSystemMessages]
+  const itemEphemeral = ephemeralItemMessages.length ? ephemeralItemMessages : ephemeralSystemMessages.filter((m) => m.content?.startsWith('【当前物品】'))
+  const baseSkillEphemeral = ephemeralSystemMessages.filter((m) => !m.content?.startsWith('【当前物品】'))
+  let chainForOpenAi = [...snap, userMsg, ...itemEphemeral, ...baseSkillEphemeral, ...preSystemMessages]
   const rollResultsInTurn = []
+  let rollSkillEphemeral = baseSkillEphemeral
 
   for (let round = 0; round < 12; round += 1) {
     const openAi = chainToOpenAiMessages(systemText, chainForOpenAi)
@@ -51,7 +62,14 @@ export async function runGmStreamWithRolls({
     if (!roll) break
 
     const value = rollByLabel('1d100')
-    const skillUse = Number.isFinite(roll.skillValue) ? roll.skillValue : fallbackSkill
+    const fromConfig = resolvePlayerSkillValue(roll.skillName)
+    const skillUse =
+      fromConfig ??
+      (Number.isFinite(roll.skillValue) ? roll.skillValue : fallbackSkill)
+    rollSkillEphemeral = [
+      ...baseSkillEphemeral,
+      ...buildEphemeralSkillReferenceMessages([roll.skillName]),
+    ]
     const outcome = classifyRollStream(value, skillUse)
     const jud = outcome ? d100OutcomeLabel(outcome) : '失败'
     const sysLine = `[ROLL_RESULT:${roll.skillName}:${value}:${jud}]`
@@ -80,6 +98,8 @@ export async function runGmStreamWithRolls({
     chainForOpenAi = [
       ...snap,
       userMsg,
+      ...itemEphemeral,
+      ...rollSkillEphemeral,
       ...preSystemMessages,
       { id: gmId, role: 'gm', content: prefixGm, ts: gmTs },
       ...rollResultsInTurn,

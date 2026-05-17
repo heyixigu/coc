@@ -34,6 +34,10 @@ export async function finishPrologueAndSave({ apiKey, scenario, signal }) {
       opening: scenario.opening.trim(),
     },
     scenarioTitle: scenario.title.trim(),
+    playerTurnCount: 0,
+    playerItems: [],
+    partnerItems: [],
+    sceneItems: [],
   }
   saveState(state)
   return state

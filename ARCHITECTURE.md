@@ -1,5 +1,30 @@
 # coc-simulator 项目架构说明（供 AI / 开发者阅读）
 
+## AI 速读（30 秒）
+
+**秘仪残卷 · CoC 模拟台** — 纯前端 CoC 文字跑团 SPA（React 19 + Vite，仅调 DeepSeek `deepseek-v4-flash`，API Key 存 `localStorage`）。
+
+| 角色 | 谁扮演 | 代码字段 |
+|------|--------|----------|
+| 何以惜顾 | 玩家（真人） | `player`，气泡 `role: 'player'` |
+| 守密人 + 林知渺台词 | AI | GM 四段回复；林知渺数值在 `partner`，言行在 `【林知渺】` |
+
+**铁律：模型从不掷 1d100。** 随机数由浏览器 `rollBiasedD100` 生成，以 `[ROLL_RESULT:技能:骰面:判定]` 注入对话链。
+
+**应用阶段**：`App.jsx` → 无 Key → `ApiKeyScreen` → 序幕 `Prologue` → 主局 `GameApp`（bootstrap 第一幕 → 玩家回合循环）。
+
+**GM 每条回复四段**（顺序固定）：`【场景】` → `【林知渺】` → `【当前状态】` → `【你可以：】`。见 `src/config/system_prompt.js`。
+
+**GM 呈现（主路径）**：`gmTurn.js` 非流式 `postChatNonStream` → `validateGmReply.js` 四段格式校验（失败静默重试一次）→ `GameApp` 同步 roster/物品 → `typewriter.js` 打字机写入 gm 气泡。
+
+**掷骰**：玩家回合由裁判 API + 客户端预掷骰；`gmRollLoop.js` 流式 `[ROLL]` 链 **保留但不引用**（备用）。
+
+**消息 role 映射**：`gm`→`assistant`，`player`/`system`→`user`；每次请求 = `GM_SYSTEM_PROMPT` + 全量 `messages` replay。
+
+**改代码前必读**（详见下文 §8）：`partner` 不是第二玩家；虚拟 user（第一幕 `buildActOneUserMessage`）不进聊天列表；改公平性动 `dice.js`，改成功线动 `cocJudge.js`。
+
+---
+
 ## 1. 这是什么
 
 **秘仪残卷 · CoC 模拟台** 是一个纯前端的 **克苏鲁的呼唤 (Call of Cthulhu)** 文字跑团客户端：
@@ -32,11 +57,17 @@ flowchart LR
 
 | 文件 | 职责 |
 |------|------|
-| `src/App.jsx` | UI、状态、启动引导、玩家发送、存档 |
+| `src/GameApp.jsx` | 主局 UI、bootstrap、presentGm、打字机、存档 |
+| `src/App.jsx` | 路由：ApiKey → 序幕 → GameApp |
+| `src/gmTurn.js` | 非流式 GM 获取 + 校验 + 重试 |
+| `src/validateGmReply.js` | GM 四段 + 【当前状态】结构校验 |
+| `src/typewriter.js` | 聊天区打字机节奏 |
+| `src/config/gmLoadingPhrases.js` | GM 加载气泡轮换文案 |
 | `src/config/system_prompt.js` | `GM_SYSTEM_PROMPT`、开场虚拟 user 消息 |
 | `src/config/characters.js` | 完整角色卡文本 + `INIT_USER_MESSAGE` |
 | `src/deepseek.js` | HTTP、SSE 流解析、`chainToOpenAiMessages`、流式直到 `[ROLL]` |
-| `src/gmRollLoop.js` | 一轮 GM 回复内的「流式 → 掷骰 → 注入结果 → 再流式」循环 |
+| `src/gmRollLoop.js` | 备用流式 `[ROLL]` 链（主流程不引用） |
+| `src/startActOne.js` | 第一幕：`presentGm` + 虚拟 user |
 | `src/rollMarker.js` | 检测 `[ROLL:技能名:数字]` |
 | `src/dice.js` | 客户端 `1d100`（带偏向处理） |
 | `src/cocJudge.js` | 根据技能值判定大成功/成功/失败/大失败 |
@@ -79,7 +110,7 @@ flowchart LR
 
 1. **人物叙述**：惜顾 / 林知渺固定文案（打字机淡入，段间 1.5s）→ 相遇场景（`streamChatPlain` + `PROLOGUE_MEETING_PROMPT`）→「继续」
 2. **剧本选择**：非流式生成三个 JSON 剧本（`parseScenarios.js`）→ 卡片单选 →「开始调查」
-3. **入局**：`finishPrologue.js` 仅做角色 JSON 初始化，把选中剧本存入 `selectedScenario`，`messages` 保持 `[]`；序幕中的 AI 文本（相遇、三剧本 JSON）**不进入** `messages`。进入 [`GameApp.jsx`](src/GameApp.jsx) 后由 `startActOne.js` 用虚拟 user 提示 + `runGmStreamWithRolls` 生成符合四段格式的第一幕 GM 回复。
+3. **入局**：`finishPrologue.js` 仅做角色 JSON 初始化，把选中剧本存入 `selectedScenario`，`messages` 保持 `[]`；序幕中的 AI 文本（相遇、三剧本 JSON）**不进入** `messages`。进入 [`GameApp.jsx`](src/GameApp.jsx) 后由 `startActOne.js` 用虚拟 user 提示 + `presentGm`（`fetchValidatedGmReply` + 打字机）生成第一幕 GM 回复。
 
 未填 API Key 时仅显示 [`ApiKeyScreen.jsx`](src/prologue/ApiKeyScreen.jsx)。旧存档若已有对话记录，视为序幕已完成。
 
@@ -99,16 +130,16 @@ sequenceDiagram
   API-->>App: JSON player/partner
   App->>UI: 解析并渲染左侧角色栏
 
-  App->>API: Step2 流式开场 OPENING_USER_VIRTUAL
-  Note over App,API: runGmStreamWithRolls snap=[]
-  API-->>App: SSE 守密人第一幕
-  App->>UI: inputLocked=false
+  App->>API: Step2 非流式第一幕 buildActOneUserMessage
+  Note over App,API: presentGm / fetchValidatedGmReply
+  API-->>App: 四段 GM 全文
+  App->>UI: 打字机呈现后 inputLocked=false
 ```
 
 | 步骤 | API | system | user 内容 | UI |
 |------|-----|--------|-----------|-----|
 | 1 初始化 | `postChatNonStream` | `GM_SYSTEM_PROMPT` | `INIT_USER_MESSAGE` = 角色卡全文 + 要求只返回 JSON | 解析 HP/MP/SAN/符纸 |
-| 2 第一幕 | `runActOneStream` | `GM_SYSTEM_PROMPT` | `buildActOneUserMessage(scenario)`（虚拟 user，不进聊天列表） | 流式 GM 四段格式；完成后清除 `selectedScenario` |
+| 2 第一幕 | `runActOneStream` → `presentGm` | `GM_SYSTEM_PROMPT` | `buildActOneUserMessage(scenario)`（虚拟 user，不进聊天列表） | 非流式校验 + 打字机；成功后清除 `selectedScenario` 并解锁输入 |
 | 3 | — | — | — | 解锁底部输入框 |
 
 `INIT_USER_MESSAGE` 要求模型返回：
@@ -155,16 +186,16 @@ sequenceDiagram
     App->>Dice: resolveSkillChecks
     App->>App: 追加 system 消息多行 ROLL_RESULT
   end
-  App->>GM: 流式 GM_SYSTEM_PROMPT + 预掷骰说明
-  Note over App,GM: chain = 历史 + player + system + gm
-  GM-->>App: 四段格式剧情（一般不再插 ROLL）
+  App->>GM: 非流式 GM_SYSTEM_PROMPT + 预掷骰说明
+  Note over App,GM: fetchValidatedGmReply + typewriter
+  GM-->>App: 四段格式剧情全文
 ```
 
 1. **裁判**（`postChatNonStream` + `JUDGE_SYSTEM_PROMPT`）：返回 `[{"skill":"…","value":N},…]` 或 `[]`。
 2. **投骰**（`resolveTurnRolls.js`）：非空则客户端 `rollBiasedD100` + 判定，写入右侧骰子记录，并追加一条 `system` 消息（多行 `[ROLL_RESULT:技能:点数:判定]`）。
-3. **叙述**（`runGmStreamWithRolls` + `GM_PRE_ROLL_NARRATIVE_ADDENDUM`）：根据已知结果写剧情；**不应再插 `[ROLL]`**；若模型仍插入 `[ROLL]`，旧流式中断机制作备用。
+3. **叙述**（`presentGm` → `fetchValidatedGmReply` + `GM_PRE_ROLL_NARRATIVE_ADDENDUM`）：根据已知结果写剧情；校验通过后同步状态/物品，再以打字机呈现全文。
 
-开场白仍仅用 `GM_SYSTEM_PROMPT` + `runGmStreamWithRolls`（无裁判步骤）。
+开场白：`GM_SYSTEM_PROMPT` + `presentGm`（无裁判步骤）。
 
 对话历史 = `messages` 全量 replay（含预掷骰的 `system` 消息）。
 
@@ -172,7 +203,7 @@ sequenceDiagram
 
 ## 6. 掷骰逻辑（客户端掷骰；玩家回合以裁判+预掷为主）
 
-随机数 **不由模型生成**。玩家回合由裁判 API 决定检什么，再由客户端掷骰；守密人只根据已给出的 `[ROLL_RESULT:…]` 写后果。流式 `[ROLL]` 中断为 **备用**（开场或模型违规时仍可用）。
+随机数 **不由模型生成**。玩家回合由裁判 API 决定检什么，再由客户端掷骰；守密人只根据已给出的 `[ROLL_RESULT:…]` 写后果。主流程 GM 为 **非流式**，不解析回复中的 `[ROLL]`；`gmRollLoop.js` 流式 `[ROLL]` 链为 **备用**（当前未引用）。
 
 ```mermaid
 sequenceDiagram
@@ -247,7 +278,7 @@ snap + userMsg + gm(已累计正文) + 本轮所有 system 掷骰消息
 ## 7. UI 布局（逻辑视图）
 
 - **左栏**：API Key；何以惜顾（player，可编辑 HP/MP/SAN/符纸）；林知渺（partner，可编辑 HP/MP/SAN）。GM 每轮输出结束后，`parseGmStatus.js` 从 `【当前状态】` 行解析数值并自动同步（失败则保持原值）；有变化的字段输入框会闪红（降低）或淡绿（升高）约 1 秒。
-- **中栏**：聊天（gm / player / system）；流式时 `bubble-streaming`
+- **中栏**：聊天（gm / player / system）；GM 加载/打字机阶段 `gmUiPhase` 控制 pending 气泡与输入锁
 - **右栏**：最近 5 次掷骰记录
 - **底栏**：玩家输入（`inputLocked` 在开场完成前禁用）
 
@@ -264,17 +295,18 @@ snap + userMsg + gm(已累计正文) + 本轮所有 system 掷骰消息
 | 掷骰公平性 / 偏移 | `src/dice.js` |
 | 成功线规则 | `src/cocJudge.js` |
 | ROLL 标记语法 | `src/rollMarker.js` + `system_prompt.js` 同步 |
-| 流式中断行为 | `src/deepseek.js` + `src/gmRollLoop.js` |
-| 启动步骤 | `src/App.jsx` bootstrap useEffect |
+| GM 非流式 / 校验 / 打字机 | `src/gmTurn.js` + `src/validateGmReply.js` + `src/typewriter.js` + `GameApp presentGm` |
+| 流式 `[ROLL]` 备用 | `src/gmRollLoop.js`（主流程不引用） |
+| 启动步骤 | `src/GameApp.jsx` bootstrap useEffect |
 
 **常见误区**：
 
-- **AI 不会自己掷 1d100**；必须在叙述里输出 `[ROLL:…]`，由客户端掷骰并注入 `[ROLL_RESULT:…]`。
+- **AI 不会自己掷 1d100**；玩家回合由裁判 API + 客户端预掷骰；开场或违规时 GM 可输出 `[ROLL:…]`，由客户端掷骰并注入 `[ROLL_RESULT:…]`。
 - `partner` 是林知渺的 **数值面板**，不是第二个玩家账号；林知渺台词在 **GM 消息的【林知渺】段**。
-- 开场 user 消息在 API 链里存在，但 **默认不进入 `messages` 数组**（仅 `OPENING_USER_VIRTUAL`）。
+- 第一幕 / 序幕的 **虚拟 user** 在 API 链里存在，但 **默认不进入 `messages` 聊天列表**（见 `buildActOneUserMessage`、`startActOne.js`）。
 
 ---
 
 ## 9. 一句话总结
 
-> 这是一个用 **固定 System Prompt + 超长角色卡** 驱动 DeepSeek 扮演 CoC 守密人的 SPA；通过 **`[ROLL]` 流式断点 + 客户端 1d100 + `[ROLL_RESULT]` 回灌** 实现「模型写剧情、程序写随机数」的跑团循环，玩家扮演何以惜顾，模型在结构化回复中同时写场景与林知渺。
+> 这是一个用 **固定 System Prompt + 超长角色卡** 驱动 DeepSeek 扮演 CoC 守密人的 SPA；通过 **裁判预掷骰 + 非流式 GM + 格式校验 + 打字机呈现** 实现「模型写剧情、程序写随机数」的跑团循环，玩家扮演何以惜顾，模型在结构化回复中同时写场景与林知渺。

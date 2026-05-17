@@ -6,9 +6,20 @@ import { postChatNonStream } from './deepseek.js'
 import { runPlayerTurn } from './playerTurn.js'
 import { runActOneStream } from './startActOne.js'
 import { mergeRosterFromGmText } from './syncRosterFromGm.js'
-import { IconDice, IconMenu, IconRoster, IconSettings, IconStory } from './components/MobileIcons.jsx'
+import { mergeInventoryFromGmText } from './syncInventoryFromGm.js'
+import CharacterPhotoFrame from './components/CharacterPhotoFrame.jsx'
+import MobileDrawer from './components/MobileDrawer.jsx'
+import PartnerAvatarButton from './components/PartnerAvatarButton.jsx'
+import PartnerMiniCard from './components/PartnerMiniCard.jsx'
+import { useIsMobile } from './hooks/useIsMobile.js'
+import { useMobileGestures } from './hooks/useMobileGestures.js'
+import { useSpriteState } from './hooks/useSpriteState.js'
 import { useVisualViewportOffset } from './hooks/useVisualViewportOffset.js'
+import { GM_LOADING_PHRASES } from './config/gmLoadingPhrases.js'
+import { fetchValidatedGmReply } from './gmTurn.js'
+import { runRollingSummary } from './rollingSummary.js'
 import { defaultState, loadState, saveState } from './storage.js'
+import { runTypewriter } from './typewriter.js'
 import './App.css'
 
 const STAT_FLASH_MS = 1000
@@ -43,10 +54,27 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
   const [partner, setPartner] = useState(() => initial.partner)
   const [messages, setMessages] = useState(() => initial.messages)
   const [diceLog, setDiceLog] = useState(() => initial.diceLog ?? [])
+  const [pendingChecks, setPendingChecks] = useState(/** @type {import('./skillJudge.js').SkillCheck[]} */ ([]))
+  const [playerTurnCount, setPlayerTurnCount] = useState(() => initial.playerTurnCount ?? 0)
+  const [playerItems, setPlayerItems] = useState(() => initial.playerItems ?? [])
+  const [partnerItems, setPartnerItems] = useState(() => initial.partnerItems ?? [])
+  const [sceneItems, setSceneItems] = useState(() => initial.sceneItems ?? [])
+  const [itemDisplay, setItemDisplay] = useState(() => ({
+    player: initial.playerItems ?? [],
+    partner: initial.partnerItems ?? [],
+    scene: initial.sceneItems ?? [],
+  }))
+  const [itemFlash, setItemFlash] = useState(/** @type {{ player: Record<string, 'up'|'down'>, partner: Record<string, 'up'|'down'>, scene: Record<string, 'up'|'down'> }} */ ({
+    player: {},
+    partner: {},
+    scene: {},
+  }))
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [activeStreamGmId, setActiveStreamGmId] = useState(null)
+  const [gmUiPhase, setGmUiPhase] = useState(/** @type {null | 'loading' | 'typing'} */ (null))
+  const [gmLoadingPhrase, setGmLoadingPhrase] = useState(GM_LOADING_PHRASES[0])
+  const [gmFormatWarning, setGmFormatWarning] = useState(false)
   const actOnePending =
     !!initial.player &&
     !!initial.partner &&
@@ -65,39 +93,190 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     partner: {},
   }))
   const [scenarioTitle] = useState(() => initial.scenarioTitle || null)
-  const [mobileTab, setMobileTab] = useState(/** @type {'story'|'roster'|'dice'|'settings'} */ ('story'))
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(false)
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false)
+  const [partnerCardOpen, setPartnerCardOpen] = useState(false)
+  const isMobile = useIsMobile()
+  const partnerCardRef = useRef(/** @type {HTMLDivElement | null} */ (null))
 
   useVisualViewportOffset()
 
   const chatEndRef = useRef(null)
   const bootingRef = useRef(false)
   const flashClearRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null))
-  const latestRef = useRef({ apiKey, player, partner, messages, selectedScenario })
-  latestRef.current = { apiKey, player, partner, messages, selectedScenario }
+  const itemFlashClearRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null))
+  const summaryQueueRef = useRef(/** @type {Promise<void>} */ (Promise.resolve()))
+  const bootstrapAbortRef = useRef(/** @type {AbortController | null} */ (null))
+  const latestRef = useRef({
+    apiKey,
+    player,
+    partner,
+    messages,
+    selectedScenario,
+    playerTurnCount,
+    playerItems,
+    partnerItems,
+    sceneItems,
+  })
+  latestRef.current = {
+    apiKey,
+    player,
+    partner,
+    messages,
+    selectedScenario,
+    playerTurnCount,
+    playerItems,
+    partnerItems,
+    sceneItems,
+  }
+
+  const getInventory = useCallback(
+    () => ({
+      playerItems: latestRef.current.playerItems,
+      partnerItems: latestRef.current.partnerItems,
+      sceneItems: latestRef.current.sceneItems,
+    }),
+    [],
+  )
+
+  const enqueueRollingSummary = useCallback((n, m) => {
+    summaryQueueRef.current = summaryQueueRef.current.then(() =>
+      runRollingSummary({
+        apiKey: latestRef.current.apiKey,
+        n,
+        m,
+        getMessages: () => latestRef.current.messages,
+        setMessages,
+      }),
+    )
+  }, [])
 
   const applyRosterFromGmText = useCallback((gmText) => {
     const merged = mergeRosterFromGmText(gmText, latestRef.current.player, latestRef.current.partner)
-    if (!merged) return
+    if (merged) {
+      setPlayer(merged.player)
+      setPartner(merged.partner)
+      const hasStatFlash =
+        Object.keys(merged.flash.player).length > 0 || Object.keys(merged.flash.partner).length > 0
+      if (hasStatFlash) {
+        if (flashClearRef.current) clearTimeout(flashClearRef.current)
+        setStatFlash(merged.flash)
+        flashClearRef.current = setTimeout(() => {
+          setStatFlash({ player: {}, partner: {} })
+          flashClearRef.current = null
+        }, STAT_FLASH_MS)
+      }
+    }
 
-    setPlayer(merged.player)
-    setPartner(merged.partner)
+    const invMerged = mergeInventoryFromGmText(
+      gmText,
+      latestRef.current.playerItems,
+      latestRef.current.partnerItems,
+      latestRef.current.sceneItems,
+    )
+    if (!invMerged) return
 
-    const hasFlash =
-      Object.keys(merged.flash.player).length > 0 || Object.keys(merged.flash.partner).length > 0
-    if (!hasFlash) return
+    setPlayerItems(invMerged.playerItems)
+    setPartnerItems(invMerged.partnerItems)
+    setSceneItems(invMerged.sceneItems)
+    setItemDisplay({
+      player: invMerged.playerView.display,
+      partner: invMerged.partnerView.display,
+      scene: invMerged.sceneView.display,
+    })
 
-    if (flashClearRef.current) clearTimeout(flashClearRef.current)
-    setStatFlash(merged.flash)
-    flashClearRef.current = setTimeout(() => {
-      setStatFlash({ player: {}, partner: {} })
-      flashClearRef.current = null
-    }, STAT_FLASH_MS)
+    const hasItemFlash =
+      Object.keys(invMerged.playerView.flash).length > 0 ||
+      Object.keys(invMerged.partnerView.flash).length > 0 ||
+      Object.keys(invMerged.sceneView.flash).length > 0
+
+    if (hasItemFlash) {
+      if (itemFlashClearRef.current) clearTimeout(itemFlashClearRef.current)
+      setItemFlash({
+        player: invMerged.playerView.flash,
+        partner: invMerged.partnerView.flash,
+        scene: invMerged.sceneView.flash,
+      })
+      itemFlashClearRef.current = setTimeout(() => {
+        setItemFlash({ player: {}, partner: {}, scene: {} })
+        setItemDisplay({
+          player: invMerged.playerItems,
+          partner: invMerged.partnerItems,
+          scene: invMerged.sceneItems,
+        })
+        itemFlashClearRef.current = null
+      }, STAT_FLASH_MS)
+    } else {
+      setItemDisplay({
+        player: invMerged.playerItems,
+        partner: invMerged.partnerItems,
+        scene: invMerged.sceneItems,
+      })
+    }
   }, [])
+
+  const presentGm = useCallback(
+    async ({ apiKey, systemText, chain, gmId, gmTs, signal }) => {
+      setGmFormatWarning(false)
+      setGmUiPhase('loading')
+
+      const result = await fetchValidatedGmReply({
+        apiKey,
+        systemText,
+        chain,
+        signal,
+      })
+
+      if (!result.ok) {
+        setGmUiPhase(null)
+        setGmFormatWarning(true)
+        return false
+      }
+
+      applyRosterFromGmText(result.text)
+      setGmUiPhase('typing')
+      setMessages((prev) => {
+        const rest = prev.filter((m) => m.id !== gmId)
+        return [...rest, { id: gmId, role: 'gm', content: '', ts: gmTs }]
+      })
+
+      try {
+        await runTypewriter({
+          text: result.text,
+          signal,
+          onUpdate: (partial) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === gmId ? { ...m, content: partial } : m)),
+            )
+          },
+        })
+      } catch (e) {
+        if (e?.name === 'AbortError') throw e
+        setGmUiPhase(null)
+        return false
+      }
+
+      setGmUiPhase(null)
+      return true
+    },
+    [applyRosterFromGmText],
+  )
+
+  useEffect(() => {
+    if (gmUiPhase !== 'loading') return undefined
+    let idx = 0
+    setGmLoadingPhrase(GM_LOADING_PHRASES[0])
+    const t = setInterval(() => {
+      idx = (idx + 1) % GM_LOADING_PHRASES.length
+      setGmLoadingPhrase(GM_LOADING_PHRASES[idx])
+    }, 2000)
+    return () => clearInterval(t)
+  }, [gmUiPhase])
 
   useEffect(() => {
     return () => {
       if (flashClearRef.current) clearTimeout(flashClearRef.current)
+      if (itemFlashClearRef.current) clearTimeout(itemFlashClearRef.current)
     }
   }, [])
 
@@ -113,17 +292,33 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
       prologueComplete: true,
       selectedScenario,
       scenarioTitle,
+      playerTurnCount,
+      playerItems,
+      partnerItems,
+      sceneItems,
     })
-  }, [apiKey, player, partner, messages, diceLog, selectedScenario, scenarioTitle])
+  }, [
+    apiKey,
+    player,
+    partner,
+    messages,
+    diceLog,
+    selectedScenario,
+    scenarioTitle,
+    playerTurnCount,
+    playerItems,
+    partnerItems,
+    sceneItems,
+  ])
 
   useEffect(() => {
-    const isMobile = window.matchMedia('(max-width: 767px)').matches
+    const isMobileViewport = window.matchMedia('(max-width: 768px)').matches
     const scroll = document.querySelector(
-      isMobile ? '.mobile-main .chat-scroll' : '.layout-desktop.panel-center .chat-scroll',
+      isMobileViewport ? '.mobile-main .chat-scroll' : '.layout-desktop.panel-center .chat-scroll',
     )
     if (scroll) scroll.scrollTop = scroll.scrollHeight
     else chatEndRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [messages, loading, activeStreamGmId])
+  }, [messages, loading, gmUiPhase])
 
   const resetStory = useCallback(() => {
     if (
@@ -136,18 +331,27 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     const d = defaultState()
     setMessages(d.messages)
     setDiceLog(d.diceLog)
+    setPendingChecks([])
+    setPlayerTurnCount(0)
+    setPlayerItems(d.playerItems)
+    setPartnerItems(d.partnerItems)
+    setSceneItems(d.sceneItems)
+    setItemDisplay({ player: [], partner: [], scene: [] })
+    setItemFlash({ player: {}, partner: {}, scene: {} })
     setPlayer(d.player)
     setPartner(d.partner)
     setInput('')
     setError('')
-    setActiveStreamGmId(null)
+    setGmUiPhase(null)
+    setGmFormatWarning(false)
     setBootstrapPhase('idle')
     setInputLocked(true)
     setBootstrapFatal(false)
     setStatFlash({ player: {}, partner: {} })
     setSelectedScenario(null)
-    setMobileTab('story')
-    setMenuOpen(false)
+    setLeftDrawerOpen(false)
+    setRightDrawerOpen(false)
+    setPartnerCardOpen(false)
   }, [])
 
   const updatePlayerStat = useCallback((key, raw) => {
@@ -177,6 +381,7 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     }
 
     const ac = new AbortController()
+    bootstrapAbortRef.current = ac
     const t = setTimeout(() => {
       void (async () => {
         if (ac.signal.aborted || bootingRef.current) return
@@ -230,23 +435,20 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
           setBootstrapPhase('opening')
           const gmId = uid()
           const gmTs = Date.now()
-          setMessages([{ id: gmId, role: 'gm', content: '', ts: gmTs }])
 
-          await runActOneStream({
+          const actOk = await runActOneStream({
             apiKey: key,
             scenario,
             gmId,
             gmTs,
-            setMessages,
-            setDiceLog,
-            setActiveStreamGmId,
-            onGmRoundComplete: applyRosterFromGmText,
-            fallbackSkill: FALLBACK_ROLL_SKILL,
+            presentGm,
+            getInventory,
+            signal: ac.signal,
           })
 
           setSelectedScenario(null)
           setBootstrapPhase('ready')
-          setInputLocked(false)
+          if (actOk) setInputLocked(false)
         } catch (e) {
           if (e?.name === 'AbortError') return
           setError(e instanceof Error ? e.message : String(e))
@@ -255,9 +457,10 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
           setMessages([])
           setInputLocked(true)
         } finally {
-          setActiveStreamGmId(null)
+          setGmUiPhase(null)
           setLoading(false)
           bootingRef.current = false
+          bootstrapAbortRef.current = null
         }
       })()
     }, 480)
@@ -265,8 +468,9 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     return () => {
       ac.abort()
       clearTimeout(t)
+      bootstrapAbortRef.current = null
     }
-  }, [apiKey, bootstrapFatal, applyRosterFromGmText])
+  }, [apiKey, bootstrapFatal, presentGm, getInventory])
 
   const handleSend = async () => {
     const trimmed = input.trim()
@@ -286,6 +490,7 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
 
     setLoading(true)
     setError('')
+    setGmFormatWarning(false)
 
     try {
       setInput('')
@@ -295,8 +500,9 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
 
       setMessages([...snap, userMsg])
       setJudgingTurn(true)
+      setPendingChecks([])
 
-      await runPlayerTurn({
+      const turnOk = await runPlayerTurn({
         apiKey: apiKey.trim(),
         snap,
         userMsg,
@@ -304,31 +510,60 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
         gmTs,
         setMessages,
         setDiceLog,
-        setActiveStreamGmId,
-        onGmRoundComplete: applyRosterFromGmText,
+        setPendingChecks,
+        presentGm,
+        getInventory,
         fallbackSkill: FALLBACK_ROLL_SKILL,
       })
+
+      if (turnOk) {
+        setPlayerTurnCount((prev) => {
+          const next = prev + 1
+          if (next > 0 && next % 10 === 0) {
+            enqueueRollingSummary(next - 9, next)
+          }
+          return next
+        })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setJudgingTurn(false)
+      setPendingChecks([])
+      setGmUiPhase(null)
       setLoading(false)
-      setActiveStreamGmId(null)
     }
   }
 
   const playerLabel = player?.name || '何以惜顾'
   const showInitWait = loading && bootstrapPhase === 'init'
-  const showOpeningWait = loading && bootstrapPhase === 'opening' && !activeStreamGmId
-  const showJudgeWait = loading && judgingTurn && !activeStreamGmId
-  const inputDisabled = loading || inputLocked
+  const showJudgeWait = loading && judgingTurn && gmUiPhase == null
+  const showGmLoading = gmUiPhase === 'loading'
+  const inputDisabled =
+    loading || inputLocked || gmUiPhase === 'loading' || gmUiPhase === 'typing'
   const headerTitle = scenarioTitle || '秘仪残卷'
-  const mobileSheetOpen = mobileTab !== 'story'
-  const closeMobileSheet = () => setMobileTab('story')
-  const selectMobileTab = (/** @type {'story'|'roster'|'dice'|'settings'} */ tab) => {
-    setMobileTab(tab)
-    setMenuOpen(false)
-  }
+  const openLeftDrawer = useCallback(() => {
+    setRightDrawerOpen(false)
+    setPartnerCardOpen(false)
+    setLeftDrawerOpen(true)
+  }, [])
+
+  const openRightDrawer = useCallback(() => {
+    setLeftDrawerOpen(false)
+    setPartnerCardOpen(false)
+    setRightDrawerOpen(true)
+  }, [])
+
+  useMobileGestures({
+    enabled: isMobile,
+    leftOpen: leftDrawerOpen,
+    rightOpen: rightDrawerOpen,
+    miniCardOpen: partnerCardOpen,
+    onOpenLeft: openLeftDrawer,
+    onOpenRight: openRightDrawer,
+    onCloseMiniCard: () => setPartnerCardOpen(false),
+    miniCardRef: partnerCardRef,
+  })
 
   const inputPlaceholder = inputLocked
     ? '等待开场白完成后再输入行动……'
@@ -337,19 +572,17 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
   const chatBlock = (
     <>
       <div className="chat-scroll">
-        {messages.length === 0 && (
+        {messages.length === 0 && !showGmLoading && (
           <p className="chat-empty">
-            守密人叙述中若出现
-            <code className="inline-code">[ROLL:技能名:技能值]</code>
-            ，将自动暂停流式输出、掷 1d100、写入
-            <code className="inline-code">[ROLL_RESULT:…]</code>
-            后继续生成。
+            发送行动后，守密人将根据检定结果与当前状态生成四段式回复，并以打字机效果呈现。
           </p>
         )}
-        {messages.map((m) => (
+        {messages
+          .filter((m) => !m.isSummary)
+          .map((m) => (
           <article
             key={m.id}
-            className={`bubble bubble-${m.role}${m.id === activeStreamGmId && loading ? ' bubble-streaming' : ''}`}
+            className={`bubble bubble-${m.role}`}
           >
             <div className="bubble-meta">
               {m.role === 'gm' ? '守密人' : m.role === 'system' ? '[系统]' : playerLabel}
@@ -358,20 +591,29 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
             <div className="bubble-body">{m.content}</div>
           </article>
         ))}
-        {loading && !activeStreamGmId && (showInitWait || showOpeningWait || showJudgeWait) && (
+        {showInitWait && (
           <div className="bubble bubble-gm pending">
             <div className="bubble-meta">守密人</div>
-            <div className="bubble-body dim">
-              {showInitWait
-                ? '正在确认角色与规则（JSON）……'
-                : showJudgeWait
-                  ? '正在判定检定并掷骰……'
-                  : '正在生成开场场景……'}
-            </div>
+            <div className="bubble-body dim">正在确认角色与规则（JSON）……</div>
+          </div>
+        )}
+        {showJudgeWait && (
+          <div className="bubble bubble-gm pending">
+            <div className="bubble-meta">守密人</div>
+            <div className="bubble-body dim">正在判定检定并掷骰……</div>
+          </div>
+        )}
+        {showGmLoading && (
+          <div className="bubble bubble-gm pending">
+            <div className="bubble-meta">守密人</div>
+            <div className="bubble-body dim">{gmLoadingPhrase}</div>
           </div>
         )}
         <div ref={chatEndRef} />
       </div>
+      {gmFormatWarning ? (
+        <div className="inline-error gm-format-warning">⚠️ 守密人回复格式异常，请重新发送</div>
+      ) : null}
       {error ? <div className="inline-error">{error}</div> : null}
     </>
   )
@@ -384,25 +626,63 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     <>
       {player ? <PlayerCard player={player} flash={statFlash.player} onChange={updatePlayerStat} /> : null}
       {partner ? <PartnerCard partner={partner} flash={statFlash.partner} onChange={updatePartnerStat} /> : null}
+      <InventoryPanel itemDisplay={itemDisplay} itemFlash={itemFlash} />
     </>
   )
 
-  const diceBlock =
-    diceLog.length === 0 ? (
-      <p className="muted small dice-log-empty">暂无记录。流式输出中检测到 [ROLL:…] 后将自动掷骰并在此显示。</p>
-    ) : (
-      <ul className="dice-log-list">
-        {diceLog.map((e) => (
-          <li key={e.id} className="dice-log-item">
-            <span className="dice-log-skill">[{e.skillName}]</span>
-            <span className="dice-log-roll"> 投出：{e.value}</span>
-            {e.outcome != null && e.judgeText ? (
-              <span className={`dice-log-outcome ${judgeClassName(e.outcome)}`}> → {e.judgeText}</span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    )
+  const diceBlock = (
+    <>
+      {pendingChecks.length > 0 ? (
+        <ul className="dice-pending-list">
+          {pendingChecks.map((c) => (
+            <li key={`${c.skill}-${c.value}`} className="dice-pending-item">
+              待检定：[{c.skill}] {c.value}%
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {diceLog.length === 0 ? (
+        <p className="muted small dice-log-empty">暂无记录。裁判判定后将自动掷骰并在此显示。</p>
+      ) : (
+        <ul className="dice-log-list">
+          {diceLog.map((e) => (
+            <li key={e.id} className="dice-log-item">
+              <span className="dice-log-skill">[{e.skillName}]</span>
+              <span className="dice-log-roll"> 投出：{e.value}</span>
+              {e.outcome != null && e.judgeText ? (
+                <span className={`dice-log-outcome ${judgeClassName(e.outcome)}`}> → {e.judgeText}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+
+  const spriteState = useSpriteState({
+    inputLocked,
+    gmUiPhase,
+    loading,
+    judgingTurn,
+    statFlash,
+  })
+
+  const rightPanelBody = (
+    <>
+      <div className="panel-right-scroll">
+        <h2 className="panel-heading">骰子记录</h2>
+        {diceBlock}
+      </div>
+      <CharacterPhotoFrame spriteState={spriteState} />
+    </>
+  )
+
+  const mobileDicePanel = (
+    <>
+      <h2 className="panel-heading">骰子记录</h2>
+      {diceBlock}
+    </>
+  )
 
   const settingsBlock = (
     <>
@@ -425,32 +705,90 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     </>
   )
 
-  const renderInputBar = (/** @type {'desktop'|'mobile'} */ variant) => (
+  const mobileLeftDrawer = (
     <>
-      <textarea
-        className={variant === 'mobile' ? 'main-input main-input-mobile' : 'main-input'}
-        rows={variant === 'mobile' ? 1 : 2}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            if (!inputDisabled) void handleSend()
-          }
-        }}
-        placeholder={inputPlaceholder}
-        disabled={inputDisabled}
-      />
-      <button
-        type="button"
-        className={variant === 'mobile' ? 'send-btn btn-touch' : 'send-btn'}
-        onClick={() => void handleSend()}
-        disabled={inputDisabled}
-      >
-        发送
-      </button>
+      <h2 className="panel-heading">连接</h2>
+      {settingsBlock}
+      <h2 className="panel-heading">角色状态</h2>
+      {rosterBlock}
+      <div className="mobile-drawer-actions">
+        {onReplayPrologue ? (
+          <button type="button" className="btn-header-secondary btn-touch" onClick={onReplayPrologue}>
+            重新序幕
+          </button>
+        ) : null}
+        <button type="button" className="btn-reset btn-touch" onClick={resetStory}>
+          重置故事
+        </button>
+        {onWipeAll ? (
+          <button type="button" className="btn-header-ghost btn-touch" onClick={onWipeAll}>
+            清除存档
+          </button>
+        ) : null}
+      </div>
     </>
   )
+
+  const renderInputBar = (/** @type {'desktop'|'mobile'} */ variant) =>
+    variant === 'mobile' ? (
+      <>
+        <PartnerAvatarButton
+          spriteState={spriteState}
+          onClick={() => {
+            setLeftDrawerOpen(false)
+            setRightDrawerOpen(false)
+            setPartnerCardOpen(true)
+          }}
+        />
+        <textarea
+          className="main-input main-input-mobile"
+          rows={1}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              if (!inputDisabled) void handleSend()
+            }
+          }}
+          placeholder={inputPlaceholder}
+          disabled={inputDisabled}
+        />
+        <button
+          type="button"
+          className="send-btn btn-touch"
+          onClick={() => void handleSend()}
+          disabled={inputDisabled}
+        >
+          发送
+        </button>
+      </>
+    ) : (
+      <>
+        <textarea
+          className="main-input"
+          rows={2}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              if (!inputDisabled) void handleSend()
+            }
+          }}
+          placeholder={inputPlaceholder}
+          disabled={inputDisabled}
+        />
+        <button
+          type="button"
+          className="send-btn"
+          onClick={() => void handleSend()}
+          disabled={inputDisabled}
+        >
+          发送
+        </button>
+      </>
+    )
 
   return (
     <div className="app-root">
@@ -458,7 +796,7 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
         <div className="app-header-row">
           <div className="app-header-titles">
             <h1 className="app-title">秘仪残卷 · CoC 模拟台</h1>
-            <p className="app-sub">本地存档 · DeepSeek · 流式输出 · [ROLL] 检定</p>
+            <p className="app-sub">本地存档 · DeepSeek · 非流式 · 打字机呈现</p>
           </div>
           <div className="app-header-actions">
             {onReplayPrologue ? (
@@ -489,131 +827,59 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
 
           <main className="panel panel-center">{chatBlock}</main>
 
-          <aside className="panel panel-right">
-            <h2 className="panel-heading">骰子记录</h2>
-            {diceBlock}
-          </aside>
+          <aside className="panel panel-right panel-right--with-portraits">{rightPanelBody}</aside>
         </div>
       </div>
 
       <footer className="input-bar layout-desktop">{renderInputBar('desktop')}</footer>
 
       <header className="mobile-top-bar layout-mobile">
+        <button
+          type="button"
+          className="mobile-drawer-trigger btn-touch"
+          aria-label="角色与物品"
+          aria-expanded={leftDrawerOpen}
+          onClick={() => (leftDrawerOpen ? setLeftDrawerOpen(false) : openLeftDrawer())}
+        >
+          <span className="mobile-drawer-trigger__glyph" aria-hidden>
+            ≡
+          </span>
+        </button>
         <h1 className="mobile-top-title">{headerTitle}</h1>
         <button
           type="button"
-          className="mobile-icon-btn btn-touch"
-          aria-label="菜单"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((o) => !o)}
+          className="mobile-drawer-trigger btn-touch"
+          aria-label="骰子记录"
+          aria-expanded={rightDrawerOpen}
+          onClick={() => (rightDrawerOpen ? setRightDrawerOpen(false) : openRightDrawer())}
         >
-          <IconMenu />
+          <span className="mobile-drawer-trigger__glyph" aria-hidden>
+            ⚄
+          </span>
         </button>
-        {menuOpen ? (
-          <>
-            <button type="button" className="mobile-menu-backdrop" aria-label="关闭菜单" onClick={() => setMenuOpen(false)} />
-            <div className="mobile-menu-dropdown">
-              {onReplayPrologue ? (
-                <button type="button" className="mobile-menu-item btn-touch" onClick={onReplayPrologue}>
-                  重新序幕
-                </button>
-              ) : null}
-              <button type="button" className="mobile-menu-item btn-touch" onClick={resetStory}>
-                重置故事
-              </button>
-              {onWipeAll ? (
-                <button type="button" className="mobile-menu-item btn-touch" onClick={onWipeAll}>
-                  清除存档
-                </button>
-              ) : null}
-            </div>
-          </>
-        ) : null}
       </header>
 
       <div className="mobile-shell layout-mobile">
         <main className="mobile-main panel-center">{chatBlock}</main>
-        <div className="mobile-input-wrap">{renderInputBar('mobile')}</div>
+        <div className="mobile-input-wrap layout-mobile">{renderInputBar('mobile')}</div>
       </div>
 
-      <nav className="mobile-tab-bar layout-mobile" aria-label="主导航">
-        <button
-          type="button"
-          className={`mobile-tab btn-touch${mobileTab === 'story' ? ' mobile-tab-active' : ''}`}
-          onClick={() => selectMobileTab('story')}
-        >
-          <IconStory />
-          <span>剧情</span>
-        </button>
-        <button
-          type="button"
-          className={`mobile-tab btn-touch${mobileTab === 'roster' ? ' mobile-tab-active' : ''}`}
-          onClick={() => selectMobileTab('roster')}
-        >
-          <IconRoster />
-          <span>角色</span>
-        </button>
-        <button
-          type="button"
-          className={`mobile-tab btn-touch${mobileTab === 'dice' ? ' mobile-tab-active' : ''}`}
-          onClick={() => selectMobileTab('dice')}
-        >
-          <IconDice />
-          <span>骰子</span>
-        </button>
-        <button
-          type="button"
-          className={`mobile-tab btn-touch${mobileTab === 'settings' ? ' mobile-tab-active' : ''}`}
-          onClick={() => selectMobileTab('settings')}
-        >
-          <IconSettings />
-          <span>设置</span>
-        </button>
-      </nav>
+      <MobileDrawer side="left" open={leftDrawerOpen} onClose={() => setLeftDrawerOpen(false)}>
+        {mobileLeftDrawer}
+      </MobileDrawer>
 
-      {mobileSheetOpen ? (
-        <>
-          <button type="button" className="mobile-sheet-backdrop layout-mobile" aria-label="关闭面板" onClick={closeMobileSheet} />
-          <div className="mobile-sheet layout-mobile" role="dialog" aria-modal="true">
-            <button type="button" className="mobile-sheet-handle" aria-label="关闭" onClick={closeMobileSheet} />
-            <div className="mobile-sheet-scroll">
-              {mobileTab === 'roster' ? (
-                <>
-                  <h2 className="panel-heading">角色状态</h2>
-                  {rosterBlock}
-                </>
-              ) : null}
-              {mobileTab === 'dice' ? (
-                <>
-                  <h2 className="panel-heading">骰子记录</h2>
-                  {diceBlock}
-                </>
-              ) : null}
-              {mobileTab === 'settings' ? (
-                <>
-                  <h2 className="panel-heading">设置</h2>
-                  {settingsBlock}
-                  <div className="mobile-settings-actions">
-                    {onReplayPrologue ? (
-                      <button type="button" className="btn-header-secondary btn-touch" onClick={onReplayPrologue}>
-                        重新序幕
-                      </button>
-                    ) : null}
-                    <button type="button" className="btn-reset btn-touch" onClick={resetStory}>
-                      重置故事
-                    </button>
-                    {onWipeAll ? (
-                      <button type="button" className="btn-header-ghost btn-touch" onClick={onWipeAll}>
-                        清除存档
-                      </button>
-                    ) : null}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </div>
-        </>
-      ) : null}
+      <MobileDrawer side="right" open={rightDrawerOpen} onClose={() => setRightDrawerOpen(false)}>
+        {mobileDicePanel}
+      </MobileDrawer>
+
+      <PartnerMiniCard
+        open={partnerCardOpen}
+        onClose={() => setPartnerCardOpen(false)}
+        spriteState={spriteState}
+        partner={partner}
+        cardRef={partnerCardRef}
+      />
+
     </div>
   )
 }
@@ -718,5 +984,44 @@ function PlayerCard({ player, flash = {}, onChange }) {
         </label>
       </div>
     </section>
+  )
+}
+
+/** @param {'up'|'down'|undefined} dir */
+function itemFlashClass(dir) {
+  if (dir === 'down') return 'item-flash-down'
+  if (dir === 'up') return 'item-flash-up'
+  return ''
+}
+
+/** @param {{ itemDisplay: { player: string[], partner: string[], scene: string[] }, itemFlash: { player: Record<string, 'up'|'down'>, partner: Record<string, 'up'|'down'>, scene: Record<string, 'up'|'down'> } }} props */
+function InventoryPanel({ itemDisplay, itemFlash }) {
+  return (
+    <section className="inventory-panel">
+      <h3 className="inventory-heading">物品</h3>
+      <ItemList title="何以惜顾" items={itemDisplay.player} flashMap={itemFlash.player} />
+      <ItemList title="林知渺" items={itemDisplay.partner} flashMap={itemFlash.partner} />
+      <ItemList title="探索物品" items={itemDisplay.scene} flashMap={itemFlash.scene} />
+    </section>
+  )
+}
+
+/** @param {{ title: string, items: string[], flashMap: Record<string, 'up'|'down'> }} props */
+function ItemList({ title, items, flashMap }) {
+  return (
+    <div className="item-block char-card">
+      <h4 className="item-block-title">{title}</h4>
+      {items.length === 0 ? (
+        <p className="muted small item-empty">暂无</p>
+      ) : (
+        <ul className="item-list">
+          {items.map((name) => (
+            <li key={name} className={`item-row ${itemFlashClass(flashMap[name])}`}>
+              {name}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
