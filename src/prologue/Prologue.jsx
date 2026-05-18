@@ -4,6 +4,7 @@ import { PROLOGUE_MEETING_PROMPT, PROLOGUE_SCENARIOS_PROMPT } from '../config/pr
 import { PROLOGUE_SEGMENT_LIN, PROLOGUE_SEGMENT_XIGU } from '../config/prologue_texts.js'
 import { postChatNonStream, streamChatPlain } from '../deepseek.js'
 import { parseScenariosJson } from '../parseScenarios.js'
+import ScreenBackButton from '../screens/ScreenBackButton.jsx'
 import { finishPrologueAndSave } from './finishPrologue.js'
 import './Prologue.css'
 
@@ -15,9 +16,9 @@ const SEGMENT_GAP_MS = 1500
  */
 
 /**
- * @param {{ apiKey: string, onComplete: () => void }} props
+ * @param {{ apiKey: string, onComplete: () => void, onNavigateBack?: () => void }} props
  */
-export default function Prologue({ apiKey, onComplete }) {
+export default function Prologue({ apiKey, onComplete, onNavigateBack }) {
   const [phase, setPhase] = useState(/** @type {1 | 2} */ (1))
   const [fadeClass, setFadeClass] = useState('prologue-fade-in')
 
@@ -133,7 +134,8 @@ export default function Prologue({ apiKey, onComplete }) {
   }
 
   return (
-    <div className={`prologue-root ${fadeClass}`}>
+    <div className={`prologue-root prologue-root--nav ${fadeClass}`}>
+      {onNavigateBack ? <ScreenBackButton onBack={onNavigateBack} /> : null}
       <div className="prologue-inner">
         {error ? <div className="prologue-error">{error}</div> : null}
 

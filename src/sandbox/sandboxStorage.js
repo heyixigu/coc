@@ -62,14 +62,14 @@ const SANDBOX_LEGACY_MIGRATED_KEY = 'sandbox-slots-migrated-v1'
  */
 
 const DEFAULT_SKILLS = () =>
-  Object.fromEntries(SANDBOX_SKILL_NAMES.map((n) => [n, 10]))
+  Object.fromEntries(SANDBOX_SKILL_NAMES.map((n) => [n, 50]))
 
 /** @param {SandboxSkills} skills */
 export function computeHpMpFromSkills(skills) {
   const physique = Number(skills.体魄) || 5
   const knowledge = Number(skills.学识) || 5
-  const maxHp = 10 + Math.floor(physique / 5)
-  const maxMp = 10 + Math.floor(knowledge / 5)
+  const maxHp = Math.min(18, Math.max(11, 10 + Math.floor(physique / 10)))
+  const maxMp = Math.min(18, Math.max(11, 10 + Math.floor(knowledge / 10)))
   return { maxHp, maxMp, hp: maxHp, mp: maxMp }
 }
 
@@ -96,7 +96,7 @@ function normalizeSkills(raw) {
   const o = /** @type {Record<string, unknown>} */ (raw)
   for (const name of SANDBOX_SKILL_NAMES) {
     const n = Number.parseInt(String(o[name]), 10)
-    if (Number.isFinite(n)) base[name] = Math.min(30, Math.max(5, n))
+    if (Number.isFinite(n)) base[name] = Math.min(80, Math.max(5, n))
   }
   return base
 }

@@ -14,6 +14,36 @@
   box-sizing: border-box;
 }
 
+.screen-root.screen-root--scroll {
+  justify-content: flex-start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-top: 3.5rem;
+  padding-bottom: 2.5rem;
+}
+
+.screen-back-btn {
+  position: fixed;
+  top: max(0.65rem, env(safe-area-inset-top, 0px));
+  left: max(0.75rem, env(safe-area-inset-left, 0px));
+  z-index: 110;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgba(180, 150, 110, 0.35);
+  border-radius: 2px;
+  background: rgba(20, 18, 14, 0.92);
+  color: #e8dcc8;
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+}
+
+.screen-back-btn:hover {
+  border-color: rgba(210, 175, 120, 0.55);
+  color: #faf3e4;
+}
+
 .screen-main-inner {
   display: flex;
   flex-direction: column;

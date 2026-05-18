@@ -1,5 +1,26 @@
 @import '../../prologue/Prologue.css';
 
+.sandbox-prologue-root.prologue-root {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: block;
+}
+
+.sandbox-prologue-inner.prologue-inner {
+  flex: none;
+  min-height: 100vh;
+  height: auto;
+  overflow: visible;
+  padding-bottom: 6rem;
+  box-sizing: border-box;
+}
+
+.skill-allocation-section {
+  overflow: visible;
+  padding-bottom: 1rem;
+}
+
 .sandbox-prologue-worlds {
   display: grid;
   grid-template-columns: 1fr 1fr;

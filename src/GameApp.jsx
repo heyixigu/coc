@@ -48,14 +48,14 @@ function judgeClassName(o) {
 }
 
 /**
- * @param {{ slotIndex: number, apiKey: string, setApiKey: (k: string) => void, bootKey?: number, onExitToMain?: () => void, onReplayPrologue?: () => void, onResetStory?: () => void, onWipeAll?: () => void }} props
+ * @param {{ slotIndex: number, apiKey: string, setApiKey: (k: string) => void, bootKey?: number, onNavigateBack?: () => void, onReplayPrologue?: () => void, onResetStory?: () => void, onWipeAll?: () => void }} props
  */
 export default function GameApp({
   slotIndex,
   apiKey,
   setApiKey,
   bootKey = 0,
-  onExitToMain,
+  onNavigateBack,
   onReplayPrologue,
   onResetStory,
   onWipeAll,
@@ -184,10 +184,10 @@ export default function GameApp({
     [slotIndex],
   )
 
-  const handleExitToMain = useCallback(() => {
+  const handleNavigateBack = useCallback(() => {
     persistGameToSlot()
-    onExitToMain?.()
-  }, [persistGameToSlot, onExitToMain])
+    onNavigateBack?.()
+  }, [persistGameToSlot, onNavigateBack])
 
   const getInventory = useCallback(
     () => ({
@@ -924,12 +924,12 @@ export default function GameApp({
       <div className="app-main layout-desktop">
         <div className="app-grid">
           <aside className="panel panel-left">
-            {onExitToMain ? (
+            {onNavigateBack ? (
               <button
                 type="button"
                 className="btn-exit-main"
                 aria-label="返回主界面"
-                onClick={handleExitToMain}
+                onClick={handleNavigateBack}
               >
                 ←
               </button>
@@ -949,12 +949,12 @@ export default function GameApp({
       <footer className="input-bar layout-desktop">{renderInputBar('desktop')}</footer>
 
       <header className="mobile-top-bar layout-mobile">
-        {onExitToMain ? (
+        {onNavigateBack ? (
           <button
             type="button"
             className="btn-exit-main btn-touch mobile-exit-trigger"
             aria-label="返回主界面"
-            onClick={handleExitToMain}
+            onClick={handleNavigateBack}
           >
             ←
           </button>

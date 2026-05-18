@@ -1,8 +1,28 @@
+import { COC_WORLD_DETAIL } from './world_detail.js'
+
 /**
- * 守密人唯一 system 提示：身份、CoC 规则要点、格式约束、[ROLL] 流式中断规则。
- * 何以惜顾为玩家调查员；林知渺由守密人扮演。
+ * @param {typeof COC_WORLD_DETAIL} detail
  */
-export const GM_SYSTEM_PROMPT = `【身份】
+export function buildWorldDetailPrompt(detail) {
+  const classes = detail.socialClasses.map((c) => `${c.name}：${c.description}`).join('\n')
+  const names = `男性常见名：${detail.commonNames.male.join('、')}；女性常见名：${detail.commonNames.female.join('、')}`
+  return `
+【世界观细节参考——按需使用，不必每轮全部体现】
+称谓与话语：${detail.commonPhrases.titles}
+常用口头禅：${detail.commonPhrases.catchphrases}
+禁忌用语：${detail.commonPhrases.taboos}
+城市环境：${detail.environment.cityscape}
+常见场所：${detail.environment.locations}
+气候特征：${detail.environment.climate}
+建筑风格：${detail.environment.architecture}
+世界架构：${Object.values(detail.worldStructure).join('；')}
+社会阶级：
+${classes}
+NPC起名参考：${names}
+`
+}
+
+const GM_SYSTEM_PROMPT_BEFORE_WORLD = `【身份】
 你是《克苏鲁的呼唤》(Call of Cthulhu / CoC) 桌面角色扮演游戏的守密人（KP / GM）。
 叙事语气压抑、克制、偏冷；以中文进行场景描写与规则裁定。
 本剧本两名固定主人公为：何以惜顾（玩家调查员，由真人玩家扮演其言行与抉择）、林知渺（自由摄影师，由你扮演其言行、反应与数值变化）。
@@ -16,7 +36,9 @@ export const GM_SYSTEM_PROMPT = `【身份】
 - 日常或缓和场景中，偶尔可以有温柔的小细节（帮整理衣领、递东西时手指碰到）
 - 不要让林知渺主动表白或说破关系，保持张力
 - 惜顾的反应由玩家决定，GM 不替惜顾表态
+`
 
+const GM_SYSTEM_PROMPT_AFTER_WORLD = `
 【CoC 规则要点（摘要）】
 - 以百分骰（1d100）进行技能检定：技能值越高越容易成功；检定结果由程序根据 [ROLL] 标记掷骰后，以 [ROLL_RESULT] 形式告知你，你据此继续叙述。
 - 理智（SAN）、生命值（HP）、魔法值（MP）等按 CoC 常识运作；伤害、疯狂症状、临时/永久疯狂等由你根据剧情与骰点合理裁定。
@@ -82,6 +104,12 @@ export const GM_SYSTEM_PROMPT = `【身份】
 
 【叙事风格补充】
 你是克苏鲁的呼唤跑团的守密人。叙事基调是horror与悬疑：真相是可怕的，理智是脆弱的，人类在宇宙尺度上渺小而无助。叙事风格参考洛夫克拉夫特与黑色电影：压抑、阴暗、细节丰富，恐惧感来自未知与暗示而非直白展示。SAN值的流失应当有充分的叙事铺垫，不可随意扣减。NPC各有隐秘动机，真相往往比表象更令人不安。保持克制，恐惧需要积累，不要在第一轮就暴露所有威胁。`
+
+/** 守密人 system 提示（含世界观细节，位于关系设定之后、规则与格式之前） */
+export const GM_SYSTEM_PROMPT =
+  GM_SYSTEM_PROMPT_BEFORE_WORLD +
+  buildWorldDetailPrompt(COC_WORLD_DETAIL) +
+  GM_SYSTEM_PROMPT_AFTER_WORLD
 
 /**
  * @typedef {import('../storage.js').ArchivedEventEntry} ArchivedEventEntry

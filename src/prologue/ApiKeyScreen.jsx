@@ -1,11 +1,13 @@
+import ScreenBackButton from '../screens/ScreenBackButton.jsx'
 import './Prologue.css'
 
 /**
- * @param {{ apiKey: string, onApiKeyChange: (key: string) => void, onWipeAll?: () => void }} props
+ * @param {{ apiKey: string, onApiKeyChange: (key: string) => void, onWipeAll?: () => void, onNavigateBack?: () => void }} props
  */
-export default function ApiKeyScreen({ apiKey, onApiKeyChange, onWipeAll }) {
+export default function ApiKeyScreen({ apiKey, onApiKeyChange, onWipeAll, onNavigateBack }) {
   return (
-    <div className="prologue-root prologue-fade-in">
+    <div className="prologue-root prologue-root--nav prologue-fade-in">
+      {onNavigateBack ? <ScreenBackButton onBack={onNavigateBack} /> : null}
       <div className="prologue-inner prologue-api-key-screen">
         <h1 className="prologue-api-title">秘仪残卷</h1>
         <p className="prologue-api-sub">填入密钥，方可揭开序幕</p>

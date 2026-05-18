@@ -91,7 +91,7 @@ function safeSkillValue(character, skillName) {
  *   apiKey: string,
  *   setApiKey?: (k: string) => void,
  *   bootKey?: number,
- *   onExitToMain?: () => void,
+ *   onNavigateBack?: () => void,
  *   onResetStory?: () => void,
  *   onReplayPrologue?: () => void,
  *   onWipeAll?: () => void,
@@ -102,7 +102,7 @@ export default function SandboxGameApp({
   apiKey,
   setApiKey,
   bootKey = 0,
-  onExitToMain,
+  onNavigateBack,
   onResetStory,
   onReplayPrologue,
   onWipeAll,
@@ -199,10 +199,10 @@ export default function SandboxGameApp({
     [slotIndex],
   )
 
-  const handleExitToMain = useCallback(() => {
+  const handleNavigateBack = useCallback(() => {
     persistSandboxToSlot()
-    onExitToMain?.()
-  }, [persistSandboxToSlot, onExitToMain])
+    onNavigateBack?.()
+  }, [persistSandboxToSlot, onNavigateBack])
 
   const worldDisplayName = worldFull?.name ?? initial.world?.name ?? ''
   const worldSubtitle = worldFull?.subtitle ?? ''
@@ -483,33 +483,37 @@ export default function SandboxGameApp({
 
   const handleRegenerate = useCallback(async () => {
     if (inputDisabled || !character || !worldFull) return
-    const visible = messages.filter((m) => !m.isSummary)
-    let lastGmIdx = -1
-    for (let i = visible.length - 1; i >= 0; i--) {
-      if (visible[i].role === 'gm') {
-        lastGmIdx = i
+
+    let lastGmIndex = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'gm' && !messages[i].isSummary) {
+        lastGmIndex = i
         break
       }
     }
-    if (lastGmIdx < 0) return
-    const gmMsg = visible[lastGmIdx]
-    let playerIdx = -1
-    for (let i = lastGmIdx - 1; i >= 0; i--) {
-      if (visible[i].role === 'player') {
-        playerIdx = i
+    if (lastGmIndex < 0) return
+
+    let lastPlayerIndex = -1
+    for (let i = lastGmIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'player') {
+        lastPlayerIndex = i
         break
       }
     }
-    if (playerIdx < 0) return
-    const playerMsg = visible[playerIdx]
-    const snap = visible.slice(0, playerIdx)
+    if (lastPlayerIndex < 0) return
+
+    const playerMsg = messages[lastPlayerIndex]
+    const cleanedMessages = messages.slice(0, lastPlayerIndex + 1)
+    const snap = messages.slice(0, lastPlayerIndex)
+    const cleanedDiceLog = diceLog.filter((d) => d.ts < playerMsg.ts)
 
     setLoading(true)
     setError('')
     setGmFormatWarning(false)
     setLastFeedback(null)
     setFeedbackMsgId(null)
-    setMessages((prev) => prev.filter((m) => m.id !== gmMsg.id))
+    setMessages(cleanedMessages)
+    setDiceLog(cleanedDiceLog)
 
     try {
       const gmId = uid()
@@ -529,7 +533,7 @@ export default function SandboxGameApp({
       setGmUiPhase(null)
       setLoading(false)
     }
-  }, [inputDisabled, character, worldFull, messages, runSandboxTurn])
+  }, [inputDisabled, character, worldFull, messages, diceLog, runSandboxTurn])
 
   if (!character || !worldFull) {
     return (
@@ -812,12 +816,12 @@ export default function SandboxGameApp({
 
       <div className="sandbox-layout layout-desktop">
         <aside className="sandbox-panel sandbox-panel-left">
-          {onExitToMain ? (
+          {onNavigateBack ? (
             <button
               type="button"
               className="btn-exit-main"
               aria-label="返回主界面"
-              onClick={handleExitToMain}
+              onClick={handleNavigateBack}
             >
               ←
             </button>
@@ -848,12 +852,12 @@ export default function SandboxGameApp({
       </div>
 
       <header className="mobile-top-bar layout-mobile">
-        {onExitToMain ? (
+        {onNavigateBack ? (
           <button
             type="button"
             className="btn-exit-main btn-touch mobile-exit-trigger"
             aria-label="返回主界面"
-            onClick={handleExitToMain}
+            onClick={handleNavigateBack}
           >
             ←
           </button>

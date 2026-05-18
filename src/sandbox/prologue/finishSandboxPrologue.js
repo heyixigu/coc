@@ -1,5 +1,5 @@
 import { loadState } from '../../storage.js'
-import { saveSandboxSlot, saveSandboxState } from '../sandboxStorage.js'
+import { computeHpMpFromSkills, saveSandboxSlot, saveSandboxState } from '../sandboxStorage.js'
 
 /**
  * @param {object} opts
@@ -9,8 +9,10 @@ import { saveSandboxSlot, saveSandboxState } from '../sandboxStorage.js'
  */
 export function finishSandboxPrologue({ character, world, opening }) {
   const ts = Date.now()
+  const { hp, mp, maxHp, maxMp } = computeHpMpFromSkills(character.skills ?? {})
+  const characterWithHpMp = { ...character, hp, mp, maxHp, maxMp }
   const state = {
-    character,
+    character: characterWithHpMp,
     world,
     messages: [
       {

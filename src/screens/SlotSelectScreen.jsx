@@ -1,3 +1,4 @@
+import ScreenBackButton from './ScreenBackButton.jsx'
 import './Screens.css'
 
 /**
@@ -12,13 +13,21 @@ import './Screens.css'
  *   }>,
  *   onSelectSlot: (slotIndex: number, isEmpty: boolean) => void,
  *   onDeleteSlot: (slotIndex: number) => void,
+ *   onNavigateBack?: () => void,
  * }} props
  */
-export default function SlotSelectScreen({ mode, slots, onSelectSlot, onDeleteSlot }) {
+export default function SlotSelectScreen({
+  mode,
+  slots,
+  onSelectSlot,
+  onDeleteSlot,
+  onNavigateBack,
+}) {
   const modeLabel = mode === 'coc' ? '克苏鲁的呼唤' : '沙盒模式'
 
   return (
-    <div className="screen-root">
+    <div className="screen-root screen-root--scroll">
+      {onNavigateBack ? <ScreenBackButton onBack={onNavigateBack} /> : null}
       <div className="screen-slot-inner">
         <h2 className="screen-mode-heading">选择存档</h2>
         <p className="screen-slot-mode-hint">{modeLabel}</p>

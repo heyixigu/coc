@@ -11,25 +11,26 @@ import {
   loadSandboxState,
 } from '../sandboxStorage.js'
 import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
+import ScreenBackButton from '../../screens/ScreenBackButton.jsx'
 import { finishSandboxPrologue } from './finishSandboxPrologue.js'
 import './SandboxPrologue.css'
 
-const SKILL_TOTAL = 100
+const SKILL_TOTAL = 350
 const SKILL_MIN = 5
-const SKILL_MAX = 30
+const SKILL_MAX = 80
 
 /**
  * @typedef {import('../sandboxStorage.js').SandboxGender} SandboxGender
  */
 
 function defaultSkills() {
-  return Object.fromEntries(SANDBOX_SKILL_NAMES.map((n) => [n, 10]))
+  return Object.fromEntries(SANDBOX_SKILL_NAMES.map((n) => [n, 50]))
 }
 
 /**
- * @param {{ apiKey: string, onComplete: () => void }} props
+ * @param {{ apiKey: string, onComplete: () => void, onNavigateBack?: () => void }} props
  */
-export default function SandboxPrologue({ apiKey, onComplete }) {
+export default function SandboxPrologue({ apiKey, onComplete, onNavigateBack }) {
   const saved = useMemo(() => loadSandboxState(), [])
 
   const [step, setStep] = useState(/** @type {1 | 2 | 3} */ (1))
@@ -170,8 +171,9 @@ export default function SandboxPrologue({ apiKey, onComplete }) {
   }, [buildCharacter, onComplete, openingReady, openingText, selectedWorld])
 
   return (
-    <section className="prologue-root prologue-fade-in">
-      <section className="prologue-inner">
+    <section className="prologue-root sandbox-prologue-root prologue-fade-in">
+      {onNavigateBack ? <ScreenBackButton onBack={onNavigateBack} /> : null}
+      <section className="prologue-inner sandbox-prologue-inner">
         {step === 1 ? (
           <>
             <h2 className="sandbox-step-title">{'\u9009\u62e9\u4e16\u754c\u89c2'}</h2>
@@ -236,6 +238,7 @@ export default function SandboxPrologue({ apiKey, onComplete }) {
                   placeholder={'\u63cf\u8ff0\u4f60\u7684\u89d2\u8272\u6765\u5386\u4e0e\u52a8\u673a\u2026\u2026'}
                 />
               </label>
+              <section className="skill-allocation-section">
               <section className="sandbox-skill-header">
                 <span>{'\u6280\u80fd\u5206\u914d'}</span>
                 <span
@@ -273,9 +276,10 @@ export default function SandboxPrologue({ apiKey, onComplete }) {
                 ))}
               </section>
               <p className="sandbox-hpmp-preview">
-                HP {hpMp.hp}/{hpMp.maxHp} ({'\u4f53\u9b44'} /5)  MP {hpMp.mp}/{hpMp.maxMp} (
-                {'\u5b66\u8bc6'} /5)
+                HP {hpMp.hp}/{hpMp.maxHp} ({'\u4f53\u9b44'} /10)  MP {hpMp.mp}/{hpMp.maxMp} (
+                {'\u5b66\u8bc6'} /10)
               </p>
+              </section>
             </section>
             <section className="prologue-footer">
               <button type="button" className="prologue-btn" onClick={() => setStep(1)}>

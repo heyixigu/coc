@@ -10,6 +10,18 @@
   overflow: hidden;
 }
 
+.prologue-root.prologue-root--nav {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prologue-root.prologue-root--nav .prologue-inner {
+  flex: none;
+  min-height: min(100vh, 100%);
+  padding-bottom: 5rem;
+}
+
 .prologue-root.prologue-fade-in {
   animation: prologueFadeIn 0.85s ease forwards;
 }

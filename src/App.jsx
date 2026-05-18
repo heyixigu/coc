@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import GameApp from './GameApp.jsx'
 import ApiKeyScreen from './prologue/ApiKeyScreen.jsx'
 import Prologue from './prologue/Prologue.jsx'
@@ -36,13 +36,34 @@ export default function App() {
   const [selectedMode, setSelectedMode] = useState(initialMode)
   const [selectedSlot, setSelectedSlot] = useState(initial.selectedSlot)
   const [screen, setScreen] = useState(/** @type {AppScreen} */ ('main'))
+  const [pageHistory, setPageHistory] = useState(/** @type {AppScreen[]} */ ([]))
   const [prologueComplete, setPrologueComplete] = useState(false)
   const [gameKey, setGameKey] = useState(0)
   const [slotsRefresh, setSlotsRefresh] = useState(0)
 
+  const screenRef = useRef(screen)
+  screenRef.current = screen
+
   const persistPatch = useCallback((patch) => {
     const prev = loadState()
     saveState({ ...prev, ...patch })
+  }, [])
+
+  const navigateTo = useCallback((newPage) => {
+    const current = screenRef.current
+    if (current !== newPage) {
+      setPageHistory((prev) => [...prev, current])
+    }
+    setScreen(newPage)
+  }, [])
+
+  const navigateBack = useCallback(() => {
+    setPageHistory((history) => {
+      if (history.length === 0) return history
+      const prevPage = history[history.length - 1]
+      setScreen(prevPage)
+      return history.slice(0, -1)
+    })
   }, [])
 
   const handleApiKeyChange = useCallback(
@@ -55,35 +76,31 @@ export default function App() {
 
   useEffect(() => {
     if (screen === 'apiKey' && apiKey.trim()) {
-      setScreen('modeSelect')
+      navigateTo('modeSelect')
     }
-  }, [screen, apiKey])
+  }, [screen, apiKey, navigateTo])
 
   const handleStartFromMain = useCallback(() => {
     if (apiKey.trim()) {
-      setScreen('modeSelect')
+      navigateTo('modeSelect')
     } else {
-      setScreen('apiKey')
+      navigateTo('apiKey')
     }
-  }, [apiKey])
-
-  const handleExitToMain = useCallback(() => {
-    setScreen('main')
-  }, [])
+  }, [apiKey, navigateTo])
 
   const handleSelectCoc = useCallback(() => {
     setSelectedMode('coc')
     persistPatch({ selectedMode: 'coc' })
     setSlotsRefresh((n) => n + 1)
-    setScreen('slotSelect')
-  }, [persistPatch])
+    navigateTo('slotSelect')
+  }, [persistPatch, navigateTo])
 
   const handleSelectSandbox = useCallback(() => {
     setSelectedMode('sandbox')
     persistPatch({ selectedMode: 'sandbox' })
     setSlotsRefresh((n) => n + 1)
-    setScreen('slotSelect')
-  }, [persistPatch])
+    navigateTo('slotSelect')
+  }, [persistPatch, navigateTo])
 
   const handleSelectSlot = useCallback(
     (slotIndex, isEmpty) => {
@@ -93,25 +110,25 @@ export default function App() {
 
       if (mode === 'sandbox') {
         if (isEmpty) {
-          setScreen('sandboxPrologue')
+          navigateTo('sandboxPrologue')
         } else {
           const sb = loadSandboxSlot(slotIndex)
           if (sb.prologueComplete && sb.character && sb.world) {
-            setScreen('sandboxGame')
+            navigateTo('sandboxGame')
           } else {
-            setScreen('sandboxPrologue')
+            navigateTo('sandboxPrologue')
           }
         }
       } else if (isEmpty) {
         setPrologueComplete(false)
-        setScreen('prologue')
+        navigateTo('prologue')
       } else {
         setPrologueComplete(true)
-        setScreen('game')
+        navigateTo('game')
       }
       setGameKey((k) => k + 1)
     },
-    [persistPatch, selectedMode],
+    [persistPatch, selectedMode, navigateTo],
   )
 
   const handleDeleteSlot = useCallback(
@@ -129,14 +146,14 @@ export default function App() {
 
   const handlePrologueComplete = useCallback(() => {
     setPrologueComplete(true)
-    setScreen('game')
+    navigateTo('game')
     setGameKey((k) => k + 1)
-  }, [])
+  }, [navigateTo])
 
   const handleSandboxPrologueComplete = useCallback(() => {
-    setScreen('sandboxGame')
+    navigateTo('sandboxGame')
     setGameKey((k) => k + 1)
-  }, [])
+  }, [navigateTo])
 
   const handleReplayPrologue = useCallback(() => {
     const mode = selectedMode || resolveSelectedMode(loadState()) || 'coc'
@@ -151,7 +168,7 @@ export default function App() {
       }
       if (slot) resetSandboxState(slot)
       else resetSandboxState()
-      setScreen('sandboxPrologue')
+      navigateTo('sandboxPrologue')
       setGameKey((k) => k + 1)
       return
     }
@@ -166,9 +183,9 @@ export default function App() {
     const key = apiKey.trim()
     resetForPrologueReplay(key, 'coc', slot ?? undefined)
     setPrologueComplete(false)
-    setScreen('prologue')
+    navigateTo('prologue')
     setGameKey((k) => k + 1)
-  }, [apiKey, selectedMode, selectedSlot])
+  }, [apiKey, selectedMode, selectedSlot, navigateTo])
 
   const handleResetStory = useCallback(() => {
     const mode = selectedMode || resolveSelectedMode(loadState()) || 'coc'
@@ -183,7 +200,7 @@ export default function App() {
       }
       if (slot) resetSandboxStory(slot)
       else resetSandboxStory()
-      setScreen('sandboxPrologue')
+      navigateTo('sandboxPrologue')
       setGameKey((k) => k + 1)
       return
     }
@@ -199,10 +216,10 @@ export default function App() {
     resetStoryKeepMode(key, 'coc', slot ?? undefined)
     setSelectedMode('coc')
     setPrologueComplete(false)
-    setScreen('slotSelect')
+    navigateTo('slotSelect')
     setSlotsRefresh((n) => n + 1)
     setGameKey((k) => k + 1)
-  }, [apiKey, selectedMode, selectedSlot])
+  }, [apiKey, selectedMode, selectedSlot, navigateTo])
 
   const handleWipeAll = useCallback(() => {
     if (!window.confirm('将清除 API Key、模式选择与全部存档，回到主界面。确定吗？')) {
@@ -214,6 +231,7 @@ export default function App() {
     setSelectedMode(null)
     setSelectedSlot(null)
     setPrologueComplete(false)
+    setPageHistory([])
     setScreen('main')
     setGameKey((k) => k + 1)
   }, [])
@@ -231,6 +249,7 @@ export default function App() {
         apiKey={apiKey}
         onApiKeyChange={handleApiKeyChange}
         onWipeAll={handleWipeAll}
+        onNavigateBack={navigateBack}
       />
     )
   }
@@ -240,6 +259,7 @@ export default function App() {
       <SandboxModeSelectScreen
         onSelectCoc={handleSelectCoc}
         onSelectSandbox={handleSelectSandbox}
+        onNavigateBack={navigateBack}
       />
     )
   }
@@ -252,13 +272,18 @@ export default function App() {
         slots={mode === 'sandbox' ? sandboxSlots : cocSlots}
         onSelectSlot={handleSelectSlot}
         onDeleteSlot={handleDeleteSlot}
+        onNavigateBack={navigateBack}
       />
     )
   }
 
   if (screen === 'sandboxPrologue') {
     return (
-      <SandboxPrologue apiKey={apiKey.trim()} onComplete={handleSandboxPrologueComplete} />
+      <SandboxPrologue
+        apiKey={apiKey.trim()}
+        onComplete={handleSandboxPrologueComplete}
+        onNavigateBack={navigateBack}
+      />
     )
   }
 
@@ -270,7 +295,7 @@ export default function App() {
         apiKey={apiKey}
         setApiKey={handleApiKeyChange}
         bootKey={gameKey}
-        onExitToMain={handleExitToMain}
+        onNavigateBack={navigateBack}
         onResetStory={handleResetStory}
         onReplayPrologue={handleReplayPrologue}
         onWipeAll={handleWipeAll}
@@ -279,7 +304,9 @@ export default function App() {
   }
 
   if (screen === 'prologue') {
-    return <Prologue apiKey={apiKey.trim()} onComplete={handlePrologueComplete} />
+    return (
+      <Prologue apiKey={apiKey.trim()} onComplete={handlePrologueComplete} onNavigateBack={navigateBack} />
+    )
   }
 
   if (screen === 'game' && selectedSlot) {
@@ -290,7 +317,7 @@ export default function App() {
         apiKey={apiKey}
         setApiKey={handleApiKeyChange}
         bootKey={gameKey}
-        onExitToMain={handleExitToMain}
+        onNavigateBack={navigateBack}
         onReplayPrologue={handleReplayPrologue}
         onResetStory={handleResetStory}
         onWipeAll={handleWipeAll}

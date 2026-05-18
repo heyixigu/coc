@@ -1,4 +1,5 @@
 import { SANDBOX_SKILL_NAMES } from './sandbox_judge_prompt.js'
+import { SANDBOX_WORLD_DETAILS } from './sandbox_world_details.js'
 
 /**
  * @typedef {import('../sandboxStorage.js').SandboxCharacter} SandboxCharacter
@@ -14,6 +15,28 @@ export const SANDBOX_PRE_ROLL_ADDENDUM = `【本轮检定】
 /**
  * @typedef {import('../sandboxStorage.js').SandboxArchivedEventEntry} SandboxArchivedEventEntry
  */
+
+/**
+ * @param {import('./sandbox_world_details.js').SANDBOX_WORLD_DETAILS[keyof typeof SANDBOX_WORLD_DETAILS]} detail
+ */
+function buildWorldDetailPrompt(detail) {
+  const classes = detail.socialClasses.map((c) => `${c.name}：${c.description}`).join('\n')
+  const names = `男性常见名：${detail.commonNames.male.join('、')}；女性常见名：${detail.commonNames.female.join('、')}`
+  return `
+【世界观细节参考——按需使用，不必每轮全部体现】
+称谓与话语：${detail.commonPhrases.titles}
+常用口头禅：${detail.commonPhrases.catchphrases}
+禁忌用语：${detail.commonPhrases.taboos}
+城市环境：${detail.environment.cityscape}
+常见场所：${detail.environment.locations}
+气候特征：${detail.environment.climate}
+建筑风格：${detail.environment.architecture}
+世界架构：${Object.values(detail.worldStructure).join('；')}
+社会阶级：
+${classes}
+NPC起名参考：${names}
+`
+}
 
 /**
  * @param {SandboxArchivedEventEntry[]} archivedEvents
@@ -37,11 +60,14 @@ export function buildSandboxGmPrompt(character, world, archivedEvents = []) {
   const items =
     character.items.length > 0 ? character.items.join('、') : '无'
 
+  const worldDetail = SANDBOX_WORLD_DETAILS[world.id]
+  const worldDetailPrompt = worldDetail ? buildWorldDetailPrompt(worldDetail) : ''
+
   const base = `【身份】
 你是沙盒跑团模式的守密人（GM / KP）。叙事风格须与当前世界观一致，语气沉浸、连贯。
 本局世界观：${world.name}（${world.subtitle}）
 ${world.flavor}
-
+${worldDetailPrompt}
 【世界观铁律】
 你必须严格在上述世界观边界内进行叙事。以下行为是被明确禁止的：
 - 引入克苏鲁神话元素、不可名状存在、宇宙级恐惧

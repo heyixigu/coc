@@ -1,12 +1,14 @@
+import ScreenBackButton from '../screens/ScreenBackButton.jsx'
 import '../screens/Screens.css'
 import './SandboxModeSelectScreen.css'
 
 /**
- * @param {{ onSelectCoc: () => void, onSelectSandbox: () => void }} props
+ * @param {{ onSelectCoc: () => void, onSelectSandbox: () => void, onNavigateBack?: () => void }} props
  */
-export default function SandboxModeSelectScreen({ onSelectCoc, onSelectSandbox }) {
+export default function SandboxModeSelectScreen({ onSelectCoc, onSelectSandbox, onNavigateBack }) {
   return (
-    <section className="screen-root">
+    <section className="screen-root screen-root--scroll">
+      {onNavigateBack ? <ScreenBackButton onBack={onNavigateBack} /> : null}
       <div className="screen-mode-inner">
         <h2 className="screen-mode-heading">请选择游戏模式</h2>
         <div className="screen-mode-cards">
