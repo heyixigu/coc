@@ -51,6 +51,44 @@ export function pickTurnSummariesInRange(turnSummaries, n, m) {
 }
 
 /**
+ * 首轮滚动摘要（第 1–10 轮）：摘要素材为 index 1~10（第 2~11 条），保留 index 0 与 11 之后。
+ * @param {SandboxChatMessage[]} messages
+ */
+export function getFirstRollingSummarySlice(messages) {
+  return { start: 1, endExclusive: 11 }
+}
+
+/**
+ * @param {SandboxChatMessage[]} messages
+ * @param {number} start
+ * @param {number} endExclusive
+ */
+export function fingerprintMessageSlice(messages, start, endExclusive) {
+  return messages
+    .slice(start, endExclusive)
+    .map((m) => m.id)
+    .join('|')
+}
+
+/**
+ * @param {SandboxChatMessage[]} messages
+ * @param {string} content
+ */
+export function applyFirstRollingSummaryReplacement(messages, content) {
+  if (!messages.length) return messages
+  const firstMessage = messages[0]
+  const remaining = messages.slice(11)
+  const summaryMsg = {
+    id: `summary-${Date.now()}`,
+    role: 'system',
+    content,
+    ts: Date.now(),
+    isSummary: true,
+  }
+  return [firstMessage, summaryMsg, ...remaining]
+}
+
+/**
  * @param {SandboxChatMessage[]} messages
  * @param {number} n
  * @param {number} m
@@ -72,8 +110,16 @@ export function buildSandboxSummaryApiMessages(messages, n, m, turnSummaries = [
     ]
   }
 
+  let source = messages
+  if (n === 1 && m === 10) {
+    source = messages.slice(1, 11)
+  } else {
+    const range = getTurnMessageRange(messages, n, m)
+    if (range) source = messages.slice(range.startIdx, range.endIdx + 1)
+  }
+
   const out = [{ role: 'system', content: buildSandboxSummaryPrompt(n, m) }]
-  for (const msg of messages) {
+  for (const msg of source) {
     if (msg.role === 'gm') out.push({ role: 'assistant', content: msg.content })
     else out.push({ role: 'user', content: msg.content })
   }
@@ -125,10 +171,16 @@ export async function runSandboxRollingSummary({
   if (!key) return
 
   const messages = getMessages()
-  const range = getTurnMessageRange(messages, n, m)
-  if (!range) return
+  const useFirstRollingSlice = n === 1 && m === 10 && messages.length > 0
+  const firstSlice = useFirstRollingSlice ? getFirstRollingSummarySlice(messages) : null
+  const range = useFirstRollingSlice ? null : getTurnMessageRange(messages, n, m)
+  if (!useFirstRollingSlice && !range) return
+  if (useFirstRollingSlice && messages.length < 2) return
 
-  const expectedFp = fingerprintTurnRange(messages, range)
+  const expectedFp = useFirstRollingSlice
+    ? fingerprintMessageSlice(messages, firstSlice.start, firstSlice.endExclusive)
+    : fingerprintTurnRange(messages, /** @type {TurnRange} */ (range))
+
   const turnSummaries =
     typeof getTurnSummaries === 'function' ? getTurnSummaries() : []
 
@@ -139,6 +191,13 @@ export async function runSandboxRollingSummary({
     })
     const content = normalizeSummaryContent(raw, n, m)
     setMessages((prev) => {
+      if (useFirstRollingSlice) {
+        const slice = getFirstRollingSummarySlice(prev)
+        if (fingerprintMessageSlice(prev, slice.start, slice.endExclusive) !== expectedFp) {
+          return prev
+        }
+        return applyFirstRollingSummaryReplacement(prev, content)
+      }
       const r = getTurnMessageRange(prev, n, m)
       if (!r) return prev
       if (fingerprintTurnRange(prev, r) !== expectedFp) return prev

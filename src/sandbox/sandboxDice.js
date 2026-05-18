@@ -4,13 +4,17 @@ const PITY_FAIL_THRESHOLD = 2
 const PITY_TAG = '命运眷顾'
 
 /**
- * 沙盒 1d100：两次取较高值，整体偏向成功。
+ * 沙盒 1d100：投三次取中间值（中位数）。
  * @returns {number}
  */
 export function rollSandboxD100() {
-  const a = Math.floor(Math.random() * 100) + 1
-  const b = Math.floor(Math.random() * 100) + 1
-  return Math.max(a, b)
+  const rolls = [
+    Math.floor(Math.random() * 100) + 1,
+    Math.floor(Math.random() * 100) + 1,
+    Math.floor(Math.random() * 100) + 1,
+  ]
+  rolls.sort((a, b) => a - b)
+  return rolls[1]
 }
 
 /**
