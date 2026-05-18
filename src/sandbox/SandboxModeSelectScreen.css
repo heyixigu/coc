@@ -1,0 +1,17 @@
+.screen-mode-card--sandbox-active {
+  cursor: pointer;
+  opacity: 1;
+  pointer-events: auto;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  border-color: rgba(70, 120, 140, 0.55);
+}
+
+.screen-mode-card--sandbox-active:hover {
+  border-color: rgba(90, 160, 180, 0.75);
+  box-shadow:
+    0 0 24px rgba(50, 100, 120, 0.2),
+    inset 0 0 32px rgba(30, 80, 100, 0.06);
+  transform: translateY(-2px);
+}

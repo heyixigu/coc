@@ -2,7 +2,7 @@ import { INIT_USER_MESSAGE } from '../config/characters.js'
 import { GM_SYSTEM_PROMPT } from '../config/system_prompt.js'
 import { parseCharacterInitJson } from '../characterInit.js'
 import { postChatNonStream } from '../deepseek.js'
-import { saveState } from '../storage.js'
+import { loadState, saveState } from '../storage.js'
 
 /**
  * @typedef {{ title: string, summary: string, tags: string[], opening: string }} ScenarioOption
@@ -20,8 +20,10 @@ export async function finishPrologueAndSave({ apiKey, scenario, signal }) {
   })
   const pair = parseCharacterInitJson(raw)
 
+  const prev = loadState()
   const state = {
     apiKey: key,
+    selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
     player: pair.player,
     partner: pair.partner,
     messages: [],

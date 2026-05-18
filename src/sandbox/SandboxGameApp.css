@@ -1,0 +1,217 @@
+@import '../App.css';
+
+.sandbox-app-root,
+section.sandbox-app-root {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--bg-deep);
+}
+
+.sandbox-header {
+  flex-shrink: 0;
+  padding: 0.75rem 1.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-deep) 100%);
+}
+
+.sandbox-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sandbox-header-title {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.15em;
+  color: var(--ink-bright);
+}
+
+.sandbox-header-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+}
+
+.sandbox-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) 1fr minmax(160px, 200px);
+  gap: 0;
+}
+
+.sandbox-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.sandbox-panel-right {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
+.sandbox-panel-center {
+  background: var(--bg-deep);
+  border-right: none;
+}
+
+.sandbox-panel-center .chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.sandbox-panel-head {
+  flex-shrink: 0;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.sandbox-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem 0.85rem;
+}
+
+.sandbox-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.sandbox-stat-box {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 0.82rem;
+}
+
+.sandbox-stat-box.flash-up {
+  animation: sandboxFlashUp 1s ease;
+}
+
+.sandbox-stat-box.flash-down {
+  animation: sandboxFlashDown 1s ease;
+}
+
+@keyframes sandboxFlashUp {
+  0% {
+    background: rgba(80, 120, 80, 0.35);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes sandboxFlashDown {
+  0% {
+    background: rgba(140, 60, 60, 0.35);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.sandbox-skill-readonly {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.sandbox-skill-readonly li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid rgba(100, 90, 70, 0.15);
+}
+
+.sandbox-items-list {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.sandbox-items-list ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.sandbox-footer {
+  flex-shrink: 0;
+  padding: 0.65rem 0.85rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.5rem;
+  background: var(--bg-panel);
+}
+
+.sandbox-footer input {
+  flex: 1;
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: rgba(12, 11, 10, 0.9);
+  color: var(--ink);
+}
+
+.sandbox-footer button {
+  flex-shrink: 0;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(180, 150, 110, 0.45);
+  border-radius: 2px;
+  background: rgba(48, 38, 26, 0.9);
+  color: #e8dcc8;
+}
+
+.sandbox-footer button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sandbox-char-name {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--ink-bright);
+}
+
+.sandbox-skill-heading {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+}
+
+.sandbox-mobile-input {
+  grid-template-columns: 1fr auto;
+}
+
+@media (max-width: 768px) {
+  .sandbox-app-root .sandbox-header.layout-desktop,
+  .sandbox-app-root .sandbox-layout.layout-desktop {
+    display: none !important;
+  }
+
+  .sandbox-app-root .sandbox-panel-center .sandbox-footer {
+    display: none;
+  }
+}

@@ -46,9 +46,16 @@ function judgeClassName(o) {
 }
 
 /**
- * @param {{ apiKey: string, setApiKey: (k: string) => void, bootKey?: number, onReplayPrologue?: () => void, onWipeAll?: () => void }} props
+ * @param {{ apiKey: string, setApiKey: (k: string) => void, bootKey?: number, onReplayPrologue?: () => void, onResetStory?: () => void, onWipeAll?: () => void }} props
  */
-export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayPrologue, onWipeAll }) {
+export default function GameApp({
+  apiKey,
+  setApiKey,
+  bootKey = 0,
+  onReplayPrologue,
+  onResetStory,
+  onWipeAll,
+}) {
   const initial = useMemo(() => loadState(), [bootKey])
   const [player, setPlayer] = useState(() => initial.player)
   const [partner, setPartner] = useState(() => initial.partner)
@@ -323,9 +330,13 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
   const resetStory = useCallback(() => {
     if (
       !window.confirm(
-        '确定要重置故事吗？对话、骰子记录与角色数值将被清除；仅保留已填写的 API Key。',
+        '确定要重置故事吗？对话、骰子记录与角色数值将被清除；将回到模式选择，并保留 API Key 与所选模式。',
       )
     ) {
+      return
+    }
+    if (onResetStory) {
+      onResetStory()
       return
     }
     const d = defaultState()
@@ -352,7 +363,7 @@ export default function GameApp({ apiKey, setApiKey, bootKey = 0, onReplayProlog
     setLeftDrawerOpen(false)
     setRightDrawerOpen(false)
     setPartnerCardOpen(false)
-  }, [])
+  }, [onResetStory])
 
   const updatePlayerStat = useCallback((key, raw) => {
     const n = Number.parseInt(String(raw), 10)

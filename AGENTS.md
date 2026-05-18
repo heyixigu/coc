@@ -4,8 +4,8 @@
 
 ## 开始阅读
 
-1. **先读** [`ARCHITECTURE.md`](./ARCHITECTURE.md) 顶部的 **「AI 速读」**（约 30 秒把握全局）。
-2. **再按需** 阅读 `ARCHITECTURE.md` 各章节：序幕、Bootstrap、守密人协议、掷骰、UI、修改注意点。
+1. **先读** [`AI_ONBOARDING.md`](./AI_ONBOARDING.md)（完整认知图：框架、三类 AI、GM 协议、玩家回合 chain、红线）。
+2. **再按需** 阅读 [`ARCHITECTURE.md`](./ARCHITECTURE.md) 各章节：序幕、Bootstrap、掷骰备用路径、UI、修改注意点。
 3. **改 prompt / 角色 / 规则** 时优先看 `src/config/`（`system_prompt.js`、`characters.js`、`judge_prompt.js`）。
 
 ## 核心约束（勿违反）

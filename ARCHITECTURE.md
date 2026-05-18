@@ -1,5 +1,7 @@
 # coc-simulator 项目架构说明（供 AI / 开发者阅读）
 
+> **新会话首选**：[`AI_ONBOARDING.md`](./AI_ONBOARDING.md) — 完整认知图（三类 AI 调用、玩家回合 chain、GM 协议、Agent 红线）。下文「AI 速读」为 30 秒极简版。
+
 ## AI 速读（30 秒）
 
 **秘仪残卷 · CoC 模拟台** — 纯前端 CoC 文字跑团 SPA（React 19 + Vite，仅调 DeepSeek `deepseek-v4-flash`，API Key 存 `localStorage`）。

@@ -6,10 +6,12 @@ export const STORAGE_KEY = 'coc-simulator-state-v1'
 /** @typedef {{ name: string, hp: number, mp: number, san: number, talisman: number }} PlayerChar */
 /** @typedef {{ name: string, hp: number, mp: number, san: number }} PartnerChar */
 /** @typedef {{ title: string, summary: string, tags: string[], opening: string }} SelectedScenario */
+/** @typedef {'coc' | 'sandbox'} GameMode */
 
 /**
  * @typedef {{
  *   apiKey: string,
+ *   selectedMode: GameMode | null,
  *   player: PlayerChar | null,
  *   partner: PartnerChar | null,
  *   messages: ChatMessage[],
@@ -83,9 +85,32 @@ function rosterFromLegacy(parsed) {
 }
 
 /** @returns {AppState} */
+/** @param {unknown} raw */
+function normalizeSelectedMode(raw) {
+  if (raw === 'coc' || raw === 'sandbox') return raw
+  return null
+}
+
+/**
+ * 已有 CoC 存档但无 selectedMode 时视为 coc（跳过模式选择）。
+ * @param {AppState} state
+ * @returns {GameMode | null}
+ */
+export function resolveSelectedMode(state) {
+  const explicit = normalizeSelectedMode(state.selectedMode)
+  if (explicit) return explicit
+  const hasExistingCocSave =
+    state.prologueComplete === true ||
+    (state.messages.length > 0 && !!state.player && !!state.partner) ||
+    !!state.selectedScenario
+  if (hasExistingCocSave) return 'coc'
+  return null
+}
+
 export function defaultState() {
   return {
     apiKey: '',
+    selectedMode: null,
     player: null,
     partner: null,
     messages: [],
@@ -197,6 +222,7 @@ export function loadState() {
     return {
       ...base,
       apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : base.apiKey,
+      selectedMode: normalizeSelectedMode(parsed.selectedMode),
       player,
       partner,
       messages: safeMessages,
@@ -222,6 +248,7 @@ export function saveState(state) {
   try {
     const payload = {
       apiKey: state.apiKey,
+      selectedMode: state.selectedMode ?? null,
       player: state.player,
       partner: state.partner,
       messages: state.messages,
@@ -249,12 +276,39 @@ export function wipePersistedState() {
 }
 
 /**
- * 保留 API Key，清空对局并回到开场序幕（不删密钥本身）。
+ * 保留 API Key 与模式，清空对局并回到模式选择（不删密钥本身）。
  * @param {string} [apiKey]
+ * @param {GameMode | null} [selectedMode]
  */
-export function resetForPrologueReplay(apiKey = '') {
+export function resetStoryKeepMode(apiKey = '', selectedMode = 'coc') {
+  const mode = normalizeSelectedMode(selectedMode) ?? 'coc'
   saveState({
     apiKey: typeof apiKey === 'string' ? apiKey : '',
+    selectedMode: mode,
+    player: null,
+    partner: null,
+    messages: [],
+    diceLog: [],
+    prologueComplete: false,
+    selectedScenario: null,
+    scenarioTitle: null,
+    playerTurnCount: 0,
+    playerItems: [],
+    partnerItems: [],
+    sceneItems: [],
+  })
+}
+
+/**
+ * 保留 API Key 与模式，清空对局并回到开场序幕（不删密钥本身）。
+ * @param {string} [apiKey]
+ * @param {GameMode | null} [selectedMode]
+ */
+export function resetForPrologueReplay(apiKey = '', selectedMode = 'coc') {
+  const mode = normalizeSelectedMode(selectedMode) ?? 'coc'
+  saveState({
+    apiKey: typeof apiKey === 'string' ? apiKey : '',
+    selectedMode: mode,
     player: null,
     partner: null,
     messages: [],
