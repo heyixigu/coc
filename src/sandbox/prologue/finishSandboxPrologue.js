@@ -1,5 +1,5 @@
 import { loadState } from '../../storage.js'
-import { computeHpMpFromSkills, saveSandboxSlot, saveSandboxState } from '../sandboxStorage.js'
+import { computeHpMpFromSkills, saveSandboxSlot } from '../sandboxStorage.js'
 
 /**
  * @param {object} opts
@@ -31,7 +31,9 @@ export function finishSandboxPrologue({ character, world, opening }) {
     eventIndex: 1,
   }
   const slot = loadState().selectedSlot
-  if (slot) saveSandboxSlot(slot, state)
-  else saveSandboxState(state)
+  if (!slot) {
+    throw new Error('未选择存档槽，无法保存沙盒序幕进度')
+  }
+  saveSandboxSlot(slot, state)
   return state
 }

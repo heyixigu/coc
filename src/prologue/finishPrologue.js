@@ -43,20 +43,14 @@ export async function finishPrologueAndSave({ apiKey, scenario, signal }) {
     eventIndex: 1,
   }
   const slot = prev.selectedSlot
-  if (slot) {
-    saveSlot(slot, gameState)
-    saveState({
-      apiKey: key,
-      selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
-      selectedSlot: slot,
-    })
-  } else {
-    saveState({
-      apiKey: key,
-      selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
-      selectedSlot: prev.selectedSlot,
-      ...gameState,
-    })
+  if (!slot) {
+    throw new Error('未选择存档槽，无法保存序幕进度')
   }
+  saveSlot(slot, gameState)
+  saveState({
+    apiKey: key,
+    selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
+    selectedSlot: slot,
+  })
   return { apiKey: key, selectedMode: prev.selectedMode, ...gameState }
 }

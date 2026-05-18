@@ -136,7 +136,6 @@ export default function SandboxGameApp({
   const [archiving, setArchiving] = useState(false)
 
   const isMobile = useIsMobile()
-  const chatEndRef = useRef(null)
   const summaryQueueRef = useRef(Promise.resolve())
   const flashClearRef = useRef(null)
   const latestRef = useRef({
@@ -236,15 +235,6 @@ export default function SandboxGameApp({
     const val = Number.isFinite(n) ? Math.max(0, n) : 0
     setCharacter((c) => (c ? { ...c, [key]: val } : c))
   }, [])
-
-  useEffect(() => {
-    const isMobileViewport = window.matchMedia('(max-width: 768px)').matches
-    const scroll = document.querySelector(
-      isMobileViewport ? '.mobile-main .chat-scroll' : '.sandbox-layout .chat-scroll',
-    )
-    if (scroll) scroll.scrollTop = scroll.scrollHeight
-    else chatEndRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [messages, loading, gmUiPhase])
 
   useEffect(() => {
     if (gmUiPhase !== 'loading') return undefined
@@ -712,7 +702,6 @@ export default function SandboxGameApp({
             <div className="bubble-body dim">{gmLoadingPhrase}</div>
           </div>
         ) : null}
-        <div ref={chatEndRef} />
       </div>
       {gmFormatWarning ? (
         <div className="inline-error gm-format-warning">{T.formatWarn}</div>

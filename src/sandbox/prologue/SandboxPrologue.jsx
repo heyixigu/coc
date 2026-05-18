@@ -6,10 +6,7 @@ import {
 } from '../config/sandbox_system_prompt.js'
 import { fetchValidatedSandboxGmReply } from '../sandboxGmTurn.js'
 import { runSandboxTypewriter } from '../sandboxTypewriter.js'
-import {
-  computeHpMpFromSkills,
-  loadSandboxState,
-} from '../sandboxStorage.js'
+import { computeHpMpFromSkills, loadSandboxSlot } from '../sandboxStorage.js'
 import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
 import ScreenBackButton from '../../screens/ScreenBackButton.jsx'
 import { finishSandboxPrologue } from './finishSandboxPrologue.js'
@@ -28,10 +25,10 @@ function defaultSkills() {
 }
 
 /**
- * @param {{ apiKey: string, onComplete: () => void, onNavigateBack?: () => void }} props
+ * @param {{ apiKey: string, slotIndex: number, onComplete: () => void, onNavigateBack?: () => void }} props
  */
-export default function SandboxPrologue({ apiKey, onComplete, onNavigateBack }) {
-  const saved = useMemo(() => loadSandboxState(), [])
+export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavigateBack }) {
+  const saved = useMemo(() => loadSandboxSlot(slotIndex), [slotIndex])
 
   const [step, setStep] = useState(/** @type {1 | 2 | 3} */ (1))
   const [worldId, setWorldId] = useState(() => saved.world?.id ?? SANDBOX_WORLDS[0].id)

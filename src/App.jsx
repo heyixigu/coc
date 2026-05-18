@@ -167,7 +167,6 @@ export default function App() {
         return
       }
       if (slot) resetSandboxState(slot)
-      else resetSandboxState()
       navigateTo('sandboxPrologue')
       setGameKey((k) => k + 1)
       return
@@ -199,7 +198,6 @@ export default function App() {
         return
       }
       if (slot) resetSandboxStory(slot)
-      else resetSandboxStory()
       navigateTo('sandboxPrologue')
       setGameKey((k) => k + 1)
       return
@@ -277,10 +275,11 @@ export default function App() {
     )
   }
 
-  if (screen === 'sandboxPrologue') {
+  if (screen === 'sandboxPrologue' && selectedSlot) {
     return (
       <SandboxPrologue
         apiKey={apiKey.trim()}
+        slotIndex={selectedSlot}
         onComplete={handleSandboxPrologueComplete}
         onNavigateBack={navigateBack}
       />

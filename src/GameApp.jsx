@@ -116,7 +116,6 @@ export default function GameApp({
 
   useVisualViewportOffset()
 
-  const chatEndRef = useRef(null)
   const bootingRef = useRef(false)
   const flashClearRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null))
   const itemFlashClearRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null))
@@ -378,15 +377,6 @@ export default function GameApp({
   }, [])
 
   const rosterReady = !!(player && partner)
-
-  useEffect(() => {
-    const isMobileViewport = window.matchMedia('(max-width: 768px)').matches
-    const scroll = document.querySelector(
-      isMobileViewport ? '.mobile-main .chat-scroll' : '.layout-desktop.panel-center .chat-scroll',
-    )
-    if (scroll) scroll.scrollTop = scroll.scrollHeight
-    else chatEndRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [messages, loading, gmUiPhase])
 
   const resetStory = useCallback(() => {
     if (
@@ -714,7 +704,6 @@ export default function GameApp({
             <div className="bubble-body dim">{gmLoadingPhrase}</div>
           </div>
         )}
-        <div ref={chatEndRef} />
       </div>
       {gmFormatWarning ? (
         <div className="inline-error gm-format-warning">⚠️ 守密人回复格式异常，请重新发送</div>

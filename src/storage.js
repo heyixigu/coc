@@ -1,3 +1,4 @@
+/** 全局偏好（apiKey / selectedMode / selectedSlot），不含对局数据 */
 export const STORAGE_KEY = 'coc-simulator-state-v1'
 
 /** @typedef {{ turn: number, summary: string }} TurnSummaryEntry */
@@ -134,23 +135,67 @@ function normalizeSelectedMode(raw) {
 export function resolveSelectedMode(state) {
   const explicit = normalizeSelectedMode(state.selectedMode)
   if (explicit) return explicit
-  migrateLegacyCocIfNeeded()
   if (listSlots().some((s) => !s.isEmpty)) return 'coc'
   if (hasAnySandboxSlotSave()) return 'sandbox'
-  const hasExistingCocSave =
-    state.prologueComplete === true ||
-    (state.messages.length > 0 && !!state.player && !!state.partner) ||
-    !!state.selectedScenario
-  if (hasExistingCocSave) return 'coc'
   return null
 }
 
 const COC_SLOT_COUNT = 2
-const LEGACY_MIGRATED_KEY = 'coc-slots-migrated-v1'
+
+/** @param {number} slotIndex 1-based @param {string} field */
+export function getSlotKey(slotIndex, field) {
+  return `coc-slot-${slotIndex}-${field}`
+}
+
+const COC_SLOT_FIELDS = [
+  'messages',
+  'inventory',
+  'roster',
+  'diceLog',
+  'turnSummaries',
+  'archivedEvents',
+  'eventIndex',
+  'playerTurnCount',
+  'prologueComplete',
+  'selectedScenario',
+  'scenarioTitle',
+  'meta',
+]
+
+/** @param {string} key */
+function readJsonKey(key) {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+/** @param {string} key @param {unknown} value */
+function writeJsonKey(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* quota */
+  }
+}
 
 /** @param {number} slotIndex 1-based */
-function cocSlotKey(slotIndex) {
-  return `coc-save-slot-${slotIndex}`
+function removeCocSlotKeys(slotIndex) {
+  for (const field of COC_SLOT_FIELDS) {
+    try {
+      localStorage.removeItem(getSlotKey(slotIndex, field))
+    } catch {
+      /* */
+    }
+  }
+  try {
+    localStorage.removeItem(`coc-save-slot-${slotIndex}`)
+  } catch {
+    /* */
+  }
 }
 
 /** @returns {CocGameState} */
@@ -389,32 +434,109 @@ function buildCocSlotMeta(gs) {
   }
 }
 
-/** @param {unknown} raw */
+/** @param {number} slotIndex 1-based @returns {CocGameState} */
+function assembleCocGameState(slotIndex) {
+  const base = defaultCocGameState()
+  const roster = readJsonKey(getSlotKey(slotIndex, 'roster'))
+  const inventory = readJsonKey(getSlotKey(slotIndex, 'inventory'))
+  const messagesRaw = readJsonKey(getSlotKey(slotIndex, 'messages'))
+  const messages = Array.isArray(messagesRaw) ? messagesRaw : []
+  const safeMessages = messages.map(normalizeChatMessage).filter(Boolean)
+
+  let player =
+    roster && typeof roster === 'object' ? normalizePlayer(/** @type {object} */ (roster).player) : null
+  let partner =
+    roster && typeof roster === 'object' ? normalizePartner(/** @type {object} */ (roster).partner) : null
+  if (!player || !partner) {
+    const leg = rosterFromLegacy(roster)
+    if (leg) {
+      player = leg.player
+      partner = leg.partner
+    }
+  }
+
+  const inv =
+    inventory && typeof inventory === 'object'
+      ? /** @type {Record<string, unknown>} */ (inventory)
+      : {}
+  const prologueFlag = readJsonKey(getSlotKey(slotIndex, 'prologueComplete'))
+  const prologueComplete =
+    prologueFlag === true || (safeMessages.length > 0 && !!player && !!partner)
+
+  return {
+    ...base,
+    player,
+    partner,
+    messages: safeMessages,
+    diceLog: normalizeDiceLog(readJsonKey(getSlotKey(slotIndex, 'diceLog'))),
+    prologueComplete,
+    selectedScenario: normalizeSelectedScenario(readJsonKey(getSlotKey(slotIndex, 'selectedScenario'))),
+    scenarioTitle: (() => {
+      const t = readJsonKey(getSlotKey(slotIndex, 'scenarioTitle'))
+      return typeof t === 'string' && t.trim() ? t.trim().slice(0, 32) : null
+    })(),
+    playerTurnCount: normalizePlayerTurnCount(readJsonKey(getSlotKey(slotIndex, 'playerTurnCount'))),
+    playerItems: normalizeItemList(inv.playerItems),
+    partnerItems: normalizeItemList(inv.partnerItems),
+    sceneItems: normalizeItemList(inv.sceneItems),
+    turnSummaries: normalizeTurnSummaries(readJsonKey(getSlotKey(slotIndex, 'turnSummaries'))),
+    archivedEvents: normalizeArchivedEvents(readJsonKey(getSlotKey(slotIndex, 'archivedEvents'))),
+    eventIndex: normalizeEventIndex(readJsonKey(getSlotKey(slotIndex, 'eventIndex'))),
+  }
+}
+
+/** @param {number} slotIndex 1-based @param {CocGameState} gs */
+function persistCocGameState(slotIndex, gs) {
+  writeJsonKey(getSlotKey(slotIndex, 'roster'), { player: gs.player, partner: gs.partner })
+  writeJsonKey(getSlotKey(slotIndex, 'inventory'), {
+    playerItems: gs.playerItems ?? [],
+    partnerItems: gs.partnerItems ?? [],
+    sceneItems: gs.sceneItems ?? [],
+  })
+  writeJsonKey(getSlotKey(slotIndex, 'messages'), gs.messages ?? [])
+  writeJsonKey(getSlotKey(slotIndex, 'diceLog'), gs.diceLog ?? [])
+  writeJsonKey(getSlotKey(slotIndex, 'turnSummaries'), gs.turnSummaries ?? [])
+  writeJsonKey(getSlotKey(slotIndex, 'archivedEvents'), gs.archivedEvents ?? [])
+  writeJsonKey(getSlotKey(slotIndex, 'eventIndex'), gs.eventIndex ?? 1)
+  writeJsonKey(getSlotKey(slotIndex, 'playerTurnCount'), gs.playerTurnCount ?? 0)
+  writeJsonKey(getSlotKey(slotIndex, 'prologueComplete'), !!gs.prologueComplete)
+  writeJsonKey(getSlotKey(slotIndex, 'selectedScenario'), gs.selectedScenario)
+  writeJsonKey(getSlotKey(slotIndex, 'scenarioTitle'), gs.scenarioTitle)
+
+  const meta = buildCocSlotMeta(gs)
+  writeJsonKey(getSlotKey(slotIndex, 'meta'), {
+    isEmpty: meta.isEmpty,
+    characterName: meta.characterName,
+    worldName: meta.worldName,
+    turnCount: meta.turnCount,
+    lastPlayedAt: meta.lastPlayedAt,
+  })
+}
+
+/** @param {number} slotIndex 1-based */
 function readCocSlotMeta(slotIndex) {
   try {
-    const raw = localStorage.getItem(cocSlotKey(slotIndex))
-    if (!raw) return emptyCocSlotMeta()
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return emptyCocSlotMeta()
-    const o = /** @type {Record<string, unknown>} */ (parsed)
-    const gameState = normalizeCocGameState(o)
-    const isEmpty = o.isEmpty === true || isCocGameStateEmpty(gameState)
-    if (isEmpty) return emptyCocSlotMeta()
+    const gameState = assembleCocGameState(slotIndex)
+    if (isCocGameStateEmpty(gameState)) return emptyCocSlotMeta()
+
+    const meta = readJsonKey(getSlotKey(slotIndex, 'meta'))
+    const o = meta && typeof meta === 'object' ? /** @type {Record<string, unknown>} */ (meta) : null
+
     return {
       isEmpty: false,
       characterName:
-        typeof o.characterName === 'string' && o.characterName.trim()
+        o && typeof o.characterName === 'string' && o.characterName.trim()
           ? o.characterName.trim()
           : gameState.player?.name?.trim() || '何以惜顾',
       worldName:
-        typeof o.worldName === 'string' && o.worldName.trim()
+        o && typeof o.worldName === 'string' && o.worldName.trim()
           ? o.worldName.trim()
           : gameState.scenarioTitle || gameState.selectedScenario?.title || '',
       turnCount:
-        typeof o.turnCount === 'number' && Number.isFinite(o.turnCount)
+        o && typeof o.turnCount === 'number' && Number.isFinite(o.turnCount)
           ? o.turnCount
           : gameState.playerTurnCount ?? 0,
-      lastPlayedAt: typeof o.lastPlayedAt === 'string' ? o.lastPlayedAt : '',
+      lastPlayedAt: o && typeof o.lastPlayedAt === 'string' ? o.lastPlayedAt : '',
       gameState,
     }
   } catch {
@@ -422,53 +544,21 @@ function readCocSlotMeta(slotIndex) {
   }
 }
 
-function readLegacyCocGameFromMainKey() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const gs = normalizeCocGameState(parsed)
-    if (isCocGameStateEmpty(gs)) return null
-    return gs
-  } catch {
-    return null
-  }
-}
-
-export function migrateLegacyCocIfNeeded() {
-  try {
-    if (localStorage.getItem(LEGACY_MIGRATED_KEY)) return
-    const existing = readCocSlotMeta(1)
-    if (!existing.isEmpty) {
-      localStorage.setItem(LEGACY_MIGRATED_KEY, '1')
-      return
-    }
-    const legacy = readLegacyCocGameFromMainKey()
-    if (legacy) saveSlot(1, legacy)
-    localStorage.setItem(LEGACY_MIGRATED_KEY, '1')
-  } catch {
-    /* */
-  }
-}
-
 function hasAnySandboxSlotSave() {
   for (let i = 1; i <= 4; i++) {
-    try {
-      const raw = localStorage.getItem(`sandbox-save-slot-${i}`)
-      if (!raw) continue
-      const p = JSON.parse(raw)
-      if (p && p.isEmpty === false) return true
-    } catch {
-      /* */
+    const meta = readJsonKey(`sandbox-slot-${i}-meta`)
+    if (meta && typeof meta === 'object' && /** @type {Record<string, unknown>} */ (meta).isEmpty === false) {
+      return true
     }
+    if (readJsonKey(`sandbox-slot-${i}-prologueComplete`) === true) return true
+    const msgs = readJsonKey(`sandbox-slot-${i}-messages`)
+    if (Array.isArray(msgs) && msgs.length > 0) return true
   }
   return false
 }
 
 /** @returns {CocSlotMeta[]} */
 export function listSlots() {
-  migrateLegacyCocIfNeeded()
   const out = []
   for (let i = 1; i <= COC_SLOT_COUNT; i++) out.push(readCocSlotMeta(i))
   return out
@@ -476,27 +566,17 @@ export function listSlots() {
 
 /** @param {number} slotIndex 1-based */
 export function loadSlot(slotIndex) {
-  migrateLegacyCocIfNeeded()
-  return readCocSlotMeta(slotIndex).gameState
+  return assembleCocGameState(slotIndex)
 }
 
 /** @param {number} slotIndex 1-based @param {CocGameState} gameState */
 export function saveSlot(slotIndex, gameState) {
-  try {
-    const meta = buildCocSlotMeta(gameState)
-    localStorage.setItem(cocSlotKey(slotIndex), JSON.stringify(meta))
-  } catch {
-    /* quota */
-  }
+  persistCocGameState(slotIndex, gameState)
 }
 
 /** @param {number} slotIndex 1-based */
 export function deleteSlot(slotIndex) {
-  try {
-    localStorage.setItem(cocSlotKey(slotIndex), JSON.stringify(emptyCocSlotMeta()))
-  } catch {
-    /* */
-  }
+  removeCocSlotKeys(slotIndex)
 }
 
 export function wipeCocSlots() {
@@ -510,21 +590,11 @@ export function loadState() {
     if (!raw) return defaultState()
     const parsed = JSON.parse(raw)
     const base = defaultState()
-    const hasGameFields =
-      parsed.player != null ||
-      parsed.partner != null ||
-      (Array.isArray(parsed.messages) && parsed.messages.length > 0) ||
-      parsed.selectedScenario != null
-
     const slotRaw = parsed.selectedSlot
     const selectedSlot =
       typeof slotRaw === 'number' && Number.isFinite(slotRaw) && slotRaw >= 1 && slotRaw <= COC_SLOT_COUNT
         ? Math.trunc(slotRaw)
         : null
-
-    if (hasGameFields) {
-      migrateLegacyCocIfNeeded()
-    }
 
     return {
       ...base,
