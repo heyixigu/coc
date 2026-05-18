@@ -1,5 +1,9 @@
 import { JUDGE_SYSTEM_PROMPT } from './config/judge_prompt.js'
-import { GM_PRE_ROLL_NARRATIVE_ADDENDUM, GM_SYSTEM_PROMPT } from './config/system_prompt.js'
+import { ARCHIVE_CMD } from './archiveEvent.js'
+import {
+  buildGmSystemPrompt,
+  GM_PRE_ROLL_NARRATIVE_ADDENDUM,
+} from './config/system_prompt.js'
 import { postChatNonStream } from './deepseek.js'
 import { buildPreRollSystemContent, resolveSkillChecks } from './resolveTurnRolls.js'
 import { buildEphemeralItemMessages } from './itemInject.js'
@@ -36,6 +40,8 @@ function uid() {
  * @param {PresentGmFn} o.presentGm
  * @param {() => { playerItems: string[], partnerItems: string[], sceneItems: string[] }} o.getInventory
  * @param {number} o.fallbackSkill
+ * @param {import('./storage.js').ArchivedEventEntry[]} [o.archivedEvents]
+ * @param {(opts: { apiKey: string, snap: ChatMsg[], userMsg: ChatMsg, gmId: string, gmTs: number }) => Promise<boolean>} [o.onArchiveEvent]
  * @returns {Promise<boolean>}
  */
 export async function runPlayerTurn({
@@ -50,10 +56,19 @@ export async function runPlayerTurn({
   presentGm,
   getInventory,
   fallbackSkill = 50,
+  archivedEvents = [],
+  onArchiveEvent,
 }) {
   void fallbackSkill
   const key = apiKey.trim()
   const actionText = userMsg.content
+
+  if (actionText.trim() === ARCHIVE_CMD) {
+    if (typeof onArchiveEvent === 'function') {
+      return onArchiveEvent({ apiKey: key, snap, userMsg, gmId, gmTs })
+    }
+    return false
+  }
 
   const judgeRaw = await postChatNonStream({
     apiKey: key,
@@ -109,7 +124,7 @@ export async function runPlayerTurn({
     return out
   })
 
-  const systemText = `${GM_SYSTEM_PROMPT}\n\n${GM_PRE_ROLL_NARRATIVE_ADDENDUM}`
+  const systemText = `${buildGmSystemPrompt(archivedEvents)}\n\n${GM_PRE_ROLL_NARRATIVE_ADDENDUM}`
   const chain = [
     ...snap,
     userMsg,

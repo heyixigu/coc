@@ -1,8 +1,12 @@
-import { buildRollingSummarySystemPrompt } from './config/summary_prompt.js'
+import {
+  buildRollingSummaryFromTurnSummariesPrompt,
+  buildRollingSummarySystemPrompt,
+} from './config/summary_prompt.js'
 import { postChatNonStream } from './deepseek.js'
 
 /**
  * @typedef {import('./storage.js').ChatMessage} ChatMessage
+ * @typedef {import('./storage.js').TurnSummaryEntry} TurnSummaryEntry
  * @typedef {{ startIdx: number, endIdx: number, startId: string, endId: string }} TurnRange
  */
 
@@ -48,11 +52,38 @@ export function fingerprintTurnRange(messages, range) {
 }
 
 /**
- * @param {ChatMessage[]} messages
+ * @param {TurnSummaryEntry[]} turnSummaries
  * @param {number} n
  * @param {number} m
  */
-export function buildSummaryApiMessages(messages, n, m) {
+export function pickTurnSummariesInRange(turnSummaries, n, m) {
+  return (turnSummaries || [])
+    .filter((s) => s.turn >= n && s.turn <= m)
+    .sort((a, b) => a.turn - b.turn)
+}
+
+/**
+ * @param {ChatMessage[]} messages
+ * @param {number} n
+ * @param {number} m
+ * @param {TurnSummaryEntry[]} [turnSummaries]
+ */
+export function buildSummaryApiMessages(messages, n, m, turnSummaries = []) {
+  const picked = pickTurnSummariesInRange(turnSummaries, n, m)
+  if (picked.length > 0) {
+    const turnSummaryText = picked.map((s) => `第${s.turn}轮：${s.summary}`).join('\n')
+    return [
+      {
+        role: 'system',
+        content: buildRollingSummaryFromTurnSummariesPrompt(n, m),
+      },
+      {
+        role: 'user',
+        content: `以下是最近${m - n + 1}轮的逐轮摘要：\n${turnSummaryText}`,
+      },
+    ]
+  }
+
   const out = [{ role: 'system', content: buildRollingSummarySystemPrompt(n, m) }]
   for (const msg of messages) {
     if (msg.role === 'gm') out.push({ role: 'assistant', content: msg.content })
@@ -98,8 +129,18 @@ export function applySummaryReplacement(messages, range, content) {
  * @param {number} opts.m
  * @param {() => ChatMessage[]} opts.getMessages
  * @param {React.Dispatch<React.SetStateAction<ChatMessage[]>>} opts.setMessages
+ * @param {() => TurnSummaryEntry[]} [opts.getTurnSummaries]
+ * @param {(updater: (prev: TurnSummaryEntry[]) => TurnSummaryEntry[]) => void} [opts.setTurnSummaries]
  */
-export async function runRollingSummary({ apiKey, n, m, getMessages, setMessages }) {
+export async function runRollingSummary({
+  apiKey,
+  n,
+  m,
+  getMessages,
+  setMessages,
+  getTurnSummaries,
+  setTurnSummaries,
+}) {
   const key = (apiKey || '').trim()
   if (!key) return
 
@@ -108,11 +149,13 @@ export async function runRollingSummary({ apiKey, n, m, getMessages, setMessages
   if (!range) return
 
   const expectedFp = fingerprintTurnRange(messages, range)
+  const turnSummaries =
+    typeof getTurnSummaries === 'function' ? getTurnSummaries() : []
 
   try {
     const raw = await postChatNonStream({
       apiKey: key,
-      messages: buildSummaryApiMessages(messages, n, m),
+      messages: buildSummaryApiMessages(messages, n, m, turnSummaries),
     })
     const content = normalizeSummaryContent(raw, n, m)
 
@@ -122,6 +165,10 @@ export async function runRollingSummary({ apiKey, n, m, getMessages, setMessages
       if (fingerprintTurnRange(prev, r) !== expectedFp) return prev
       return applySummaryReplacement(prev, r, content)
     })
+
+    if (typeof setTurnSummaries === 'function') {
+      setTurnSummaries((prev) => prev.filter((s) => s.turn < n || s.turn > m))
+    }
   } catch {
     /* 静默忽略 */
   }

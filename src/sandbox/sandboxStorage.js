@@ -2,7 +2,23 @@ import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
 
 export const SANDBOX_STORAGE_KEY = 'sandbox-simulator-state-v1'
 
-/** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number, isSummary?: boolean }} SandboxChatMessage */
+const SANDBOX_SLOT_COUNT = 4
+const SANDBOX_LEGACY_MIGRATED_KEY = 'sandbox-slots-migrated-v1'
+
+/**
+ * @typedef {{
+ *   isEmpty: boolean,
+ *   characterName: string,
+ *   worldName: string,
+ *   turnCount: number,
+ *   lastPlayedAt: string,
+ *   gameState: SandboxState
+ * }} SandboxSlotMeta
+ */
+
+/** @typedef {{ turn: number, summary: string }} SandboxTurnSummaryEntry */
+/** @typedef {{ index: number, summary: string, archivedAt: string, endMessageId?: string }} SandboxArchivedEventEntry */
+/** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number, isSummary?: boolean, isArchive?: boolean }} SandboxChatMessage */
 /** @typedef {'extreme' | 'success' | 'fail' | 'fumble'} SandboxD100Outcome */
 /** @typedef {{ id: string, skillName: string, value: number, dice: string, outcome: SandboxD100Outcome | null, judgeText: string, ts: number }} SandboxDiceLogEntry */
 /** @typedef {Record<string, number>} SandboxSkills */
@@ -37,7 +53,11 @@ export const SANDBOX_STORAGE_KEY = 'sandbox-simulator-state-v1'
  *   messages: SandboxChatMessage[],
  *   diceLog: SandboxDiceLogEntry[],
  *   playerTurnCount: number,
+ *   consecutiveFails: number,
  *   prologueComplete: boolean,
+ *   turnSummaries: SandboxTurnSummaryEntry[],
+ *   archivedEvents: SandboxArchivedEventEntry[],
+ *   eventIndex: number
  * }} SandboxState
  */
 
@@ -61,7 +81,11 @@ export function defaultSandboxState() {
     messages: [],
     diceLog: [],
     playerTurnCount: 0,
+    consecutiveFails: 0,
     prologueComplete: false,
+    turnSummaries: [],
+    archivedEvents: [],
+    eventIndex: 1,
   }
 }
 
@@ -147,7 +171,52 @@ function normalizeMessage(m) {
     content: typeof o.content === 'string' ? o.content : '',
     ts: typeof o.ts === 'number' && Number.isFinite(o.ts) ? o.ts : Date.now(),
     ...(o.isSummary === true ? { isSummary: true } : {}),
+    ...(o.isArchive === true ? { isArchive: true } : {}),
   }
+}
+
+/** @param {unknown} raw */
+function normalizeTurnSummaries(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue
+    const o = /** @type {Record<string, unknown>} */ (e)
+    const turn = Number.parseInt(String(o.turn), 10)
+    const summary = typeof o.summary === 'string' ? o.summary.trim().slice(0, 2000) : ''
+    if (!Number.isFinite(turn) || turn < 1 || !summary) continue
+    out.push({ turn, summary })
+  }
+  return out.slice(0, 500)
+}
+
+/** @param {unknown} raw */
+function normalizeArchivedEvents(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue
+    const o = /** @type {Record<string, unknown>} */ (e)
+    const index = Number.parseInt(String(o.index), 10)
+    const summary = typeof o.summary === 'string' ? o.summary.trim().slice(0, 8000) : ''
+    const archivedAt = typeof o.archivedAt === 'string' ? o.archivedAt : ''
+    if (!Number.isFinite(index) || index < 1 || !summary) continue
+    out.push({
+      index,
+      summary,
+      archivedAt,
+      ...(typeof o.endMessageId === 'string' && o.endMessageId
+        ? { endMessageId: o.endMessageId }
+        : {}),
+    })
+  }
+  return out.slice(0, 50)
+}
+
+/** @param {unknown} raw */
+function normalizeEventIndex(raw) {
+  const n = Number.parseInt(String(raw ?? 1), 10)
+  return Number.isFinite(n) && n >= 1 ? n : 1
 }
 
 /** @param {unknown} raw */
@@ -172,6 +241,171 @@ function normalizeDiceLog(raw) {
   return out.slice(0, 5)
 }
 
+/** @param {number} slotIndex 1-based */
+function sandboxSlotKey(slotIndex) {
+  return `sandbox-save-slot-${slotIndex}`
+}
+
+function isSandboxStateEmpty(gs) {
+  return (
+    !gs.prologueComplete &&
+    !gs.character &&
+    !gs.world &&
+    (gs.messages?.length ?? 0) === 0
+  )
+}
+
+/** @returns {SandboxSlotMeta} */
+function emptySandboxSlotMeta() {
+  return {
+    isEmpty: true,
+    characterName: '',
+    worldName: '',
+    turnCount: 0,
+    lastPlayedAt: '',
+    gameState: defaultSandboxState(),
+  }
+}
+
+/** @param {unknown} raw */
+function normalizeSandboxGameFromRaw(raw) {
+  if (!raw || typeof raw !== 'object') return defaultSandboxState()
+  const o = /** @type {Record<string, unknown>} */ (raw)
+  const gs =
+    o.gameState && typeof o.gameState === 'object'
+      ? /** @type {Record<string, unknown>} */ (o.gameState)
+      : o
+  const messages = Array.isArray(gs.messages) ? gs.messages : []
+  return {
+    character: normalizeCharacter(gs.character),
+    world: normalizeWorld(gs.world),
+    messages: messages.map(normalizeMessage).filter(Boolean),
+    diceLog: normalizeDiceLog(gs.diceLog),
+    playerTurnCount:
+      Number.isFinite(Number(gs.playerTurnCount)) && Number(gs.playerTurnCount) >= 0
+        ? Number(gs.playerTurnCount)
+        : 0,
+      consecutiveFails:
+        Number.isFinite(Number(gs.consecutiveFails)) && Number(gs.consecutiveFails) >= 0
+          ? Math.trunc(Number(gs.consecutiveFails))
+          : 0,
+      prologueComplete: gs.prologueComplete === true,
+      turnSummaries: normalizeTurnSummaries(gs.turnSummaries),
+      archivedEvents: normalizeArchivedEvents(gs.archivedEvents),
+      eventIndex: normalizeEventIndex(gs.eventIndex),
+  }
+}
+
+/** @param {SandboxState} gs */
+function buildSandboxSlotMeta(gs) {
+  const empty = isSandboxStateEmpty(gs)
+  return {
+    isEmpty: empty,
+    characterName: gs.character?.name?.trim() || '',
+    worldName: gs.world?.name?.trim() || '',
+    turnCount: gs.playerTurnCount ?? 0,
+    lastPlayedAt: empty ? '' : new Date().toISOString(),
+    gameState: gs,
+  }
+}
+
+/** @param {number} slotIndex */
+function readSandboxSlotMeta(slotIndex) {
+  try {
+    const raw = localStorage.getItem(sandboxSlotKey(slotIndex))
+    if (!raw) return emptySandboxSlotMeta()
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return emptySandboxSlotMeta()
+    const o = /** @type {Record<string, unknown>} */ (parsed)
+    const gameState = normalizeSandboxGameFromRaw(o)
+    const isEmpty = o.isEmpty === true || isSandboxStateEmpty(gameState)
+    if (isEmpty) return emptySandboxSlotMeta()
+    return {
+      isEmpty: false,
+      characterName:
+        typeof o.characterName === 'string' && o.characterName.trim()
+          ? o.characterName.trim()
+          : gameState.character?.name?.trim() || '',
+      worldName:
+        typeof o.worldName === 'string' && o.worldName.trim()
+          ? o.worldName.trim()
+          : gameState.world?.name?.trim() || '',
+      turnCount:
+        typeof o.turnCount === 'number' && Number.isFinite(o.turnCount)
+          ? o.turnCount
+          : gameState.playerTurnCount ?? 0,
+      lastPlayedAt: typeof o.lastPlayedAt === 'string' ? o.lastPlayedAt : '',
+      gameState,
+    }
+  } catch {
+    return emptySandboxSlotMeta()
+  }
+}
+
+function readLegacySandboxFromMainKey() {
+  try {
+    const raw = localStorage.getItem(SANDBOX_STORAGE_KEY)
+    if (!raw) return null
+    const gs = normalizeSandboxGameFromRaw(JSON.parse(raw))
+    if (isSandboxStateEmpty(gs)) return null
+    return gs
+  } catch {
+    return null
+  }
+}
+
+export function migrateLegacySandboxIfNeeded() {
+  try {
+    if (localStorage.getItem(SANDBOX_LEGACY_MIGRATED_KEY)) return
+    if (!readSandboxSlotMeta(1).isEmpty) {
+      localStorage.setItem(SANDBOX_LEGACY_MIGRATED_KEY, '1')
+      return
+    }
+    const legacy = readLegacySandboxFromMainKey()
+    if (legacy) saveSandboxSlot(1, legacy)
+    localStorage.setItem(SANDBOX_LEGACY_MIGRATED_KEY, '1')
+  } catch {
+    /* */
+  }
+}
+
+/** @returns {SandboxSlotMeta[]} */
+export function listSandboxSlots() {
+  migrateLegacySandboxIfNeeded()
+  const out = []
+  for (let i = 1; i <= SANDBOX_SLOT_COUNT; i++) out.push(readSandboxSlotMeta(i))
+  return out
+}
+
+/** @param {number} slotIndex 1-based */
+export function loadSandboxSlot(slotIndex) {
+  migrateLegacySandboxIfNeeded()
+  return readSandboxSlotMeta(slotIndex).gameState
+}
+
+/** @param {number} slotIndex 1-based @param {SandboxState} gameState */
+export function saveSandboxSlot(slotIndex, gameState) {
+  try {
+    const meta = buildSandboxSlotMeta(gameState)
+    localStorage.setItem(sandboxSlotKey(slotIndex), JSON.stringify(meta))
+  } catch {
+    /* quota */
+  }
+}
+
+/** @param {number} slotIndex 1-based */
+export function deleteSandboxSlot(slotIndex) {
+  try {
+    localStorage.setItem(sandboxSlotKey(slotIndex), JSON.stringify(emptySandboxSlotMeta()))
+  } catch {
+    /* */
+  }
+}
+
+export function wipeSandboxSlots() {
+  for (let i = 1; i <= SANDBOX_SLOT_COUNT; i++) deleteSandboxSlot(i)
+}
+
 /** @returns {SandboxState} */
 export function loadSandboxState() {
   try {
@@ -189,6 +423,10 @@ export function loadSandboxState() {
       playerTurnCount:
         Number.isFinite(Number(parsed.playerTurnCount)) && Number(parsed.playerTurnCount) >= 0
           ? Number(parsed.playerTurnCount)
+          : 0,
+      consecutiveFails:
+        Number.isFinite(Number(parsed.consecutiveFails)) && Number(parsed.consecutiveFails) >= 0
+          ? Math.trunc(Number(parsed.consecutiveFails))
           : 0,
       prologueComplete: parsed.prologueComplete === true,
     }
@@ -208,6 +446,7 @@ export function saveSandboxState(state) {
         messages: state.messages,
         diceLog: state.diceLog,
         playerTurnCount: state.playerTurnCount ?? 0,
+        consecutiveFails: state.consecutiveFails ?? 0,
         prologueComplete: !!state.prologueComplete,
       }),
     )
@@ -222,24 +461,27 @@ export function wipeSandboxStorage() {
   } catch {
     /* */
   }
+  wipeSandboxSlots()
 }
 
 /** @returns {SandboxState} */
-export function resetSandboxState() {
+export function resetSandboxState(slotIndex) {
   const s = defaultSandboxState()
-  saveSandboxState(s)
+  if (slotIndex) saveSandboxSlot(slotIndex, s)
+  else saveSandboxState(s)
   return s
 }
 
 /** 保留角色与世界观，清空对局 */
-export function resetSandboxStory() {
-  const prev = loadSandboxState()
+export function resetSandboxStory(slotIndex) {
+  const prev = slotIndex ? loadSandboxSlot(slotIndex) : loadSandboxState()
   const s = {
     ...defaultSandboxState(),
     character: prev.character,
     world: prev.world,
     prologueComplete: false,
   }
-  saveSandboxState(s)
+  if (slotIndex) saveSandboxSlot(slotIndex, s)
+  else saveSandboxState(s)
   return s
 }

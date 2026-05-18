@@ -2,7 +2,7 @@ import { INIT_USER_MESSAGE } from '../config/characters.js'
 import { GM_SYSTEM_PROMPT } from '../config/system_prompt.js'
 import { parseCharacterInitJson } from '../characterInit.js'
 import { postChatNonStream } from '../deepseek.js'
-import { loadState, saveState } from '../storage.js'
+import { loadState, saveSlot, saveState } from '../storage.js'
 
 /**
  * @typedef {{ title: string, summary: string, tags: string[], opening: string }} ScenarioOption
@@ -21,9 +21,7 @@ export async function finishPrologueAndSave({ apiKey, scenario, signal }) {
   const pair = parseCharacterInitJson(raw)
 
   const prev = loadState()
-  const state = {
-    apiKey: key,
-    selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
+  const gameState = {
     player: pair.player,
     partner: pair.partner,
     messages: [],
@@ -40,7 +38,25 @@ export async function finishPrologueAndSave({ apiKey, scenario, signal }) {
     playerItems: [],
     partnerItems: [],
     sceneItems: [],
+    turnSummaries: [],
+    archivedEvents: [],
+    eventIndex: 1,
   }
-  saveState(state)
-  return state
+  const slot = prev.selectedSlot
+  if (slot) {
+    saveSlot(slot, gameState)
+    saveState({
+      apiKey: key,
+      selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
+      selectedSlot: slot,
+    })
+  } else {
+    saveState({
+      apiKey: key,
+      selectedMode: prev.selectedMode === 'sandbox' ? 'sandbox' : 'coc',
+      selectedSlot: prev.selectedSlot,
+      ...gameState,
+    })
+  }
+  return { apiKey: key, selectedMode: prev.selectedMode, ...gameState }
 }

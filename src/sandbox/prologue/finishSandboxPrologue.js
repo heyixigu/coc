@@ -1,4 +1,5 @@
-import { saveSandboxState } from '../sandboxStorage.js'
+import { loadState } from '../../storage.js'
+import { saveSandboxSlot, saveSandboxState } from '../sandboxStorage.js'
 
 /**
  * @param {object} opts
@@ -21,8 +22,14 @@ export function finishSandboxPrologue({ character, world, opening }) {
     ],
     diceLog: [],
     playerTurnCount: 0,
+    consecutiveFails: 0,
     prologueComplete: true,
+    turnSummaries: [],
+    archivedEvents: [],
+    eventIndex: 1,
   }
-  saveSandboxState(state)
+  const slot = loadState().selectedSlot
+  if (slot) saveSandboxSlot(slot, state)
+  else saveSandboxState(state)
   return state
 }

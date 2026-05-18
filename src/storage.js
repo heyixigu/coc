@@ -1,6 +1,8 @@
 export const STORAGE_KEY = 'coc-simulator-state-v1'
 
-/** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number, isSummary?: boolean }} ChatMessage */
+/** @typedef {{ turn: number, summary: string }} TurnSummaryEntry */
+/** @typedef {{ index: number, summary: string, archivedAt: string, endMessageId?: string }} ArchivedEventEntry */
+/** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number, isSummary?: boolean, isArchive?: boolean }} ChatMessage */
 /** @typedef {'extreme' | 'success' | 'fail' | 'fumble'} D100Outcome */
 /** @typedef {{ id: string, skillName: string, value: number, dice: string, outcome: D100Outcome | null, judgeText: string, ts: number }} DiceLogEntry */
 /** @typedef {{ name: string, hp: number, mp: number, san: number, talisman: number }} PlayerChar */
@@ -8,10 +10,43 @@ export const STORAGE_KEY = 'coc-simulator-state-v1'
 /** @typedef {{ title: string, summary: string, tags: string[], opening: string }} SelectedScenario */
 /** @typedef {'coc' | 'sandbox'} GameMode */
 
+/** @typedef {1 | 2} CocSlotIndex */
+
+/**
+ * @typedef {{
+ *   isEmpty: boolean,
+ *   characterName: string,
+ *   worldName: string,
+ *   turnCount: number,
+ *   lastPlayedAt: string,
+ *   gameState: CocGameState
+ * }} CocSlotMeta
+ */
+
+/**
+ * @typedef {{
+ *   player: PlayerChar | null,
+ *   partner: PartnerChar | null,
+ *   messages: ChatMessage[],
+ *   diceLog: DiceLogEntry[],
+ *   prologueComplete: boolean,
+ *   selectedScenario: SelectedScenario | null,
+ *   scenarioTitle: string | null,
+ *   playerTurnCount: number,
+ *   playerItems: string[],
+ *   partnerItems: string[],
+ *   sceneItems: string[],
+ *   turnSummaries: TurnSummaryEntry[],
+ *   archivedEvents: ArchivedEventEntry[],
+ *   eventIndex: number
+ * }} CocGameState
+ */
+
 /**
  * @typedef {{
  *   apiKey: string,
  *   selectedMode: GameMode | null,
+ *   selectedSlot: number | null,
  *   player: PlayerChar | null,
  *   partner: PartnerChar | null,
  *   messages: ChatMessage[],
@@ -99,6 +134,9 @@ function normalizeSelectedMode(raw) {
 export function resolveSelectedMode(state) {
   const explicit = normalizeSelectedMode(state.selectedMode)
   if (explicit) return explicit
+  migrateLegacyCocIfNeeded()
+  if (listSlots().some((s) => !s.isEmpty)) return 'coc'
+  if (hasAnySandboxSlotSave()) return 'sandbox'
   const hasExistingCocSave =
     state.prologueComplete === true ||
     (state.messages.length > 0 && !!state.player && !!state.partner) ||
@@ -107,10 +145,39 @@ export function resolveSelectedMode(state) {
   return null
 }
 
+const COC_SLOT_COUNT = 2
+const LEGACY_MIGRATED_KEY = 'coc-slots-migrated-v1'
+
+/** @param {number} slotIndex 1-based */
+function cocSlotKey(slotIndex) {
+  return `coc-save-slot-${slotIndex}`
+}
+
+/** @returns {CocGameState} */
+export function defaultCocGameState() {
+  return {
+    player: null,
+    partner: null,
+    messages: [],
+    diceLog: [],
+    prologueComplete: false,
+    selectedScenario: null,
+    scenarioTitle: null,
+    playerTurnCount: 0,
+    playerItems: [],
+    partnerItems: [],
+    sceneItems: [],
+    turnSummaries: [],
+    archivedEvents: [],
+    eventIndex: 1,
+  }
+}
+
 export function defaultState() {
   return {
     apiKey: '',
     selectedMode: null,
+    selectedSlot: null,
     player: null,
     partner: null,
     messages: [],
@@ -157,7 +224,52 @@ function normalizeChatMessage(m) {
     content: typeof o.content === 'string' ? o.content : '',
     ts: typeof o.ts === 'number' && Number.isFinite(o.ts) ? o.ts : Date.now(),
     ...(o.isSummary === true ? { isSummary: true } : {}),
+    ...(o.isArchive === true ? { isArchive: true } : {}),
   }
+}
+
+/** @param {unknown} raw */
+function normalizeTurnSummaries(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue
+    const o = /** @type {Record<string, unknown>} */ (e)
+    const turn = Number.parseInt(String(o.turn), 10)
+    const summary = typeof o.summary === 'string' ? o.summary.trim().slice(0, 2000) : ''
+    if (!Number.isFinite(turn) || turn < 1 || !summary) continue
+    out.push({ turn, summary })
+  }
+  return out.slice(0, 500)
+}
+
+/** @param {unknown} raw */
+function normalizeArchivedEvents(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue
+    const o = /** @type {Record<string, unknown>} */ (e)
+    const index = Number.parseInt(String(o.index), 10)
+    const summary = typeof o.summary === 'string' ? o.summary.trim().slice(0, 8000) : ''
+    const archivedAt = typeof o.archivedAt === 'string' ? o.archivedAt : ''
+    if (!Number.isFinite(index) || index < 1 || !summary) continue
+    out.push({
+      index,
+      summary,
+      archivedAt,
+      ...(typeof o.endMessageId === 'string' && o.endMessageId
+        ? { endMessageId: o.endMessageId }
+        : {}),
+    })
+  }
+  return out.slice(0, 50)
+}
+
+/** @param {unknown} raw */
+function normalizeEventIndex(raw) {
+  const n = Number.parseInt(String(raw ?? 1), 10)
+  return Number.isFinite(n) && n >= 1 ? n : 1
 }
 
 /** @param {unknown} raw */
@@ -195,6 +307,202 @@ function normalizeDiceLog(raw) {
   return out.slice(0, 5)
 }
 
+/** @param {unknown} parsed */
+function normalizeCocGameState(parsed) {
+  const base = defaultCocGameState()
+  if (!parsed || typeof parsed !== 'object') return base
+  const p = /** @type {Record<string, unknown>} */ (parsed)
+  const gs =
+    p.gameState && typeof p.gameState === 'object'
+      ? /** @type {Record<string, unknown>} */ (p.gameState)
+      : p
+  const messages = Array.isArray(gs.messages) ? gs.messages : []
+  const safeMessages = messages.map(normalizeChatMessage).filter(Boolean)
+
+  let player = normalizePlayer(gs.player)
+  let partner = normalizePartner(gs.partner)
+  if (!player || !partner) {
+    const leg = rosterFromLegacy(gs)
+    if (leg) {
+      player = leg.player
+      partner = leg.partner
+    }
+  }
+
+  const prologueComplete =
+    gs.prologueComplete === true || (safeMessages.length > 0 && !!player && !!partner)
+
+  return {
+    ...base,
+    player,
+    partner,
+    messages: safeMessages,
+    diceLog: normalizeDiceLog(gs.diceLog),
+    prologueComplete,
+    selectedScenario: normalizeSelectedScenario(gs.selectedScenario),
+    scenarioTitle:
+      typeof gs.scenarioTitle === 'string' && gs.scenarioTitle.trim()
+        ? gs.scenarioTitle.trim().slice(0, 32)
+        : null,
+    playerTurnCount: normalizePlayerTurnCount(gs.playerTurnCount),
+    playerItems: normalizeItemList(gs.playerItems),
+    partnerItems: normalizeItemList(gs.partnerItems),
+    sceneItems: normalizeItemList(gs.sceneItems),
+    turnSummaries: normalizeTurnSummaries(gs.turnSummaries),
+    archivedEvents: normalizeArchivedEvents(gs.archivedEvents),
+    eventIndex: normalizeEventIndex(gs.eventIndex),
+  }
+}
+
+function isCocGameStateEmpty(gs) {
+  return (
+    !gs.prologueComplete &&
+    !gs.player &&
+    !gs.partner &&
+    (gs.messages?.length ?? 0) === 0 &&
+    !gs.selectedScenario
+  )
+}
+
+/** @returns {CocSlotMeta} */
+function emptyCocSlotMeta() {
+  return {
+    isEmpty: true,
+    characterName: '',
+    worldName: '',
+    turnCount: 0,
+    lastPlayedAt: '',
+    gameState: defaultCocGameState(),
+  }
+}
+
+/** @param {CocGameState} gs */
+function buildCocSlotMeta(gs) {
+  const empty = isCocGameStateEmpty(gs)
+  return {
+    isEmpty: empty,
+    characterName: gs.player?.name?.trim() || '何以惜顾',
+    worldName: gs.scenarioTitle || gs.selectedScenario?.title || '',
+    turnCount: gs.playerTurnCount ?? 0,
+    lastPlayedAt: empty ? '' : new Date().toISOString(),
+    gameState: gs,
+  }
+}
+
+/** @param {unknown} raw */
+function readCocSlotMeta(slotIndex) {
+  try {
+    const raw = localStorage.getItem(cocSlotKey(slotIndex))
+    if (!raw) return emptyCocSlotMeta()
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return emptyCocSlotMeta()
+    const o = /** @type {Record<string, unknown>} */ (parsed)
+    const gameState = normalizeCocGameState(o)
+    const isEmpty = o.isEmpty === true || isCocGameStateEmpty(gameState)
+    if (isEmpty) return emptyCocSlotMeta()
+    return {
+      isEmpty: false,
+      characterName:
+        typeof o.characterName === 'string' && o.characterName.trim()
+          ? o.characterName.trim()
+          : gameState.player?.name?.trim() || '何以惜顾',
+      worldName:
+        typeof o.worldName === 'string' && o.worldName.trim()
+          ? o.worldName.trim()
+          : gameState.scenarioTitle || gameState.selectedScenario?.title || '',
+      turnCount:
+        typeof o.turnCount === 'number' && Number.isFinite(o.turnCount)
+          ? o.turnCount
+          : gameState.playerTurnCount ?? 0,
+      lastPlayedAt: typeof o.lastPlayedAt === 'string' ? o.lastPlayedAt : '',
+      gameState,
+    }
+  } catch {
+    return emptyCocSlotMeta()
+  }
+}
+
+function readLegacyCocGameFromMainKey() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    const gs = normalizeCocGameState(parsed)
+    if (isCocGameStateEmpty(gs)) return null
+    return gs
+  } catch {
+    return null
+  }
+}
+
+export function migrateLegacyCocIfNeeded() {
+  try {
+    if (localStorage.getItem(LEGACY_MIGRATED_KEY)) return
+    const existing = readCocSlotMeta(1)
+    if (!existing.isEmpty) {
+      localStorage.setItem(LEGACY_MIGRATED_KEY, '1')
+      return
+    }
+    const legacy = readLegacyCocGameFromMainKey()
+    if (legacy) saveSlot(1, legacy)
+    localStorage.setItem(LEGACY_MIGRATED_KEY, '1')
+  } catch {
+    /* */
+  }
+}
+
+function hasAnySandboxSlotSave() {
+  for (let i = 1; i <= 4; i++) {
+    try {
+      const raw = localStorage.getItem(`sandbox-save-slot-${i}`)
+      if (!raw) continue
+      const p = JSON.parse(raw)
+      if (p && p.isEmpty === false) return true
+    } catch {
+      /* */
+    }
+  }
+  return false
+}
+
+/** @returns {CocSlotMeta[]} */
+export function listSlots() {
+  migrateLegacyCocIfNeeded()
+  const out = []
+  for (let i = 1; i <= COC_SLOT_COUNT; i++) out.push(readCocSlotMeta(i))
+  return out
+}
+
+/** @param {number} slotIndex 1-based */
+export function loadSlot(slotIndex) {
+  migrateLegacyCocIfNeeded()
+  return readCocSlotMeta(slotIndex).gameState
+}
+
+/** @param {number} slotIndex 1-based @param {CocGameState} gameState */
+export function saveSlot(slotIndex, gameState) {
+  try {
+    const meta = buildCocSlotMeta(gameState)
+    localStorage.setItem(cocSlotKey(slotIndex), JSON.stringify(meta))
+  } catch {
+    /* quota */
+  }
+}
+
+/** @param {number} slotIndex 1-based */
+export function deleteSlot(slotIndex) {
+  try {
+    localStorage.setItem(cocSlotKey(slotIndex), JSON.stringify(emptyCocSlotMeta()))
+  } catch {
+    /* */
+  }
+}
+
+export function wipeCocSlots() {
+  for (let i = 1; i <= COC_SLOT_COUNT; i++) deleteSlot(i)
+}
+
 /** @returns {AppState} */
 export function loadState() {
   try {
@@ -202,64 +510,50 @@ export function loadState() {
     if (!raw) return defaultState()
     const parsed = JSON.parse(raw)
     const base = defaultState()
-    const messages = Array.isArray(parsed.messages) ? parsed.messages : []
-    const safeMessages = messages.map(normalizeChatMessage).filter(Boolean)
+    const hasGameFields =
+      parsed.player != null ||
+      parsed.partner != null ||
+      (Array.isArray(parsed.messages) && parsed.messages.length > 0) ||
+      parsed.selectedScenario != null
 
-    let player = normalizePlayer(parsed.player)
-    let partner = normalizePartner(parsed.partner)
-    if (!player || !partner) {
-      const leg = rosterFromLegacy(parsed)
-      if (leg) {
-        player = leg.player
-        partner = leg.partner
-      }
+    const slotRaw = parsed.selectedSlot
+    const selectedSlot =
+      typeof slotRaw === 'number' && Number.isFinite(slotRaw) && slotRaw >= 1 && slotRaw <= COC_SLOT_COUNT
+        ? Math.trunc(slotRaw)
+        : null
+
+    if (hasGameFields) {
+      migrateLegacyCocIfNeeded()
     }
-
-    const prologueComplete =
-      parsed.prologueComplete === true ||
-      (safeMessages.length > 0 && !!player && !!partner)
 
     return {
       ...base,
       apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : base.apiKey,
       selectedMode: normalizeSelectedMode(parsed.selectedMode),
-      player,
-      partner,
-      messages: safeMessages,
-      diceLog: normalizeDiceLog(parsed.diceLog),
-      prologueComplete,
-      selectedScenario: normalizeSelectedScenario(parsed.selectedScenario),
-      scenarioTitle:
-        typeof parsed.scenarioTitle === 'string' && parsed.scenarioTitle.trim()
-          ? parsed.scenarioTitle.trim().slice(0, 32)
-          : null,
-      playerTurnCount: normalizePlayerTurnCount(parsed.playerTurnCount),
-      playerItems: normalizeItemList(parsed.playerItems),
-      partnerItems: normalizeItemList(parsed.partnerItems),
-      sceneItems: normalizeItemList(parsed.sceneItems),
+      selectedSlot,
     }
   } catch {
     return defaultState()
   }
 }
 
-/** @param {AppState} state */
+/** @param {Partial<AppState>} state */
 export function saveState(state) {
   try {
+    const prev = loadState()
     const payload = {
-      apiKey: state.apiKey,
-      selectedMode: state.selectedMode ?? null,
-      player: state.player,
-      partner: state.partner,
-      messages: state.messages,
-      diceLog: state.diceLog,
-      prologueComplete: !!state.prologueComplete,
-      selectedScenario: state.selectedScenario ?? null,
-      scenarioTitle: state.scenarioTitle ?? null,
-      playerTurnCount: normalizePlayerTurnCount(state.playerTurnCount),
-      playerItems: normalizeItemList(state.playerItems),
-      partnerItems: normalizeItemList(state.partnerItems),
-      sceneItems: normalizeItemList(state.sceneItems),
+      apiKey: typeof state.apiKey === 'string' ? state.apiKey : prev.apiKey,
+      selectedMode:
+        state.selectedMode !== undefined ? normalizeSelectedMode(state.selectedMode) : prev.selectedMode,
+      selectedSlot:
+        state.selectedSlot !== undefined
+          ? state.selectedSlot === null ||
+            (typeof state.selectedSlot === 'number' &&
+              state.selectedSlot >= 1 &&
+              state.selectedSlot <= 4)
+            ? state.selectedSlot
+            : prev.selectedSlot
+          : prev.selectedSlot,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   } catch {
@@ -280,22 +574,14 @@ export function wipePersistedState() {
  * @param {string} [apiKey]
  * @param {GameMode | null} [selectedMode]
  */
-export function resetStoryKeepMode(apiKey = '', selectedMode = 'coc') {
+export function resetStoryKeepMode(apiKey = '', selectedMode = 'coc', slotIndex) {
   const mode = normalizeSelectedMode(selectedMode) ?? 'coc'
+  const slot = slotIndex ?? loadState().selectedSlot
+  if (slot) saveSlot(slot, defaultCocGameState())
   saveState({
     apiKey: typeof apiKey === 'string' ? apiKey : '',
     selectedMode: mode,
-    player: null,
-    partner: null,
-    messages: [],
-    diceLog: [],
-    prologueComplete: false,
-    selectedScenario: null,
-    scenarioTitle: null,
-    playerTurnCount: 0,
-    playerItems: [],
-    partnerItems: [],
-    sceneItems: [],
+    selectedSlot: slot,
   })
 }
 
@@ -304,26 +590,19 @@ export function resetStoryKeepMode(apiKey = '', selectedMode = 'coc') {
  * @param {string} [apiKey]
  * @param {GameMode | null} [selectedMode]
  */
-export function resetForPrologueReplay(apiKey = '', selectedMode = 'coc') {
+export function resetForPrologueReplay(apiKey = '', selectedMode = 'coc', slotIndex) {
   const mode = normalizeSelectedMode(selectedMode) ?? 'coc'
+  const slot = slotIndex ?? loadState().selectedSlot
+  if (slot) deleteSlot(slot)
   saveState({
     apiKey: typeof apiKey === 'string' ? apiKey : '',
     selectedMode: mode,
-    player: null,
-    partner: null,
-    messages: [],
-    diceLog: [],
-    prologueComplete: false,
-    selectedScenario: null,
-    scenarioTitle: null,
-    playerTurnCount: 0,
-    playerItems: [],
-    partnerItems: [],
-    sceneItems: [],
+    selectedSlot: slot,
   })
 }
 
 /** 清空全部本地存档（含 API Key） */
 export function wipeAllIncludingApiKey() {
   wipePersistedState()
+  wipeCocSlots()
 }

@@ -1,8 +1,12 @@
 import { postChatNonStream } from '../deepseek.js'
-import { buildSandboxSummaryPrompt } from './config/sandbox_summary_prompt.js'
+import {
+  buildSandboxRollingSummaryFromTurnSummariesPrompt,
+  buildSandboxSummaryPrompt,
+} from './config/sandbox_summary_prompt.js'
 
 /**
  * @typedef {import('./sandboxStorage.js').SandboxChatMessage} SandboxChatMessage
+ * @typedef {import('./sandboxStorage.js').SandboxTurnSummaryEntry} SandboxTurnSummaryEntry
  * @typedef {{ startIdx: number, endIdx: number, startId: string, endId: string }} TurnRange
  */
 
@@ -36,11 +40,38 @@ export function fingerprintTurnRange(messages, range) {
 }
 
 /**
- * @param {SandboxChatMessage[]} messages
+ * @param {SandboxTurnSummaryEntry[]} turnSummaries
  * @param {number} n
  * @param {number} m
  */
-export function buildSandboxSummaryApiMessages(messages, n, m) {
+export function pickTurnSummariesInRange(turnSummaries, n, m) {
+  return (turnSummaries || [])
+    .filter((s) => s.turn >= n && s.turn <= m)
+    .sort((a, b) => a.turn - b.turn)
+}
+
+/**
+ * @param {SandboxChatMessage[]} messages
+ * @param {number} n
+ * @param {number} m
+ * @param {SandboxTurnSummaryEntry[]} [turnSummaries]
+ */
+export function buildSandboxSummaryApiMessages(messages, n, m, turnSummaries = []) {
+  const picked = pickTurnSummariesInRange(turnSummaries, n, m)
+  if (picked.length > 0) {
+    const turnSummaryText = picked.map((s) => `第${s.turn}轮：${s.summary}`).join('\n')
+    return [
+      {
+        role: 'system',
+        content: buildSandboxRollingSummaryFromTurnSummariesPrompt(n, m),
+      },
+      {
+        role: 'user',
+        content: `以下是最近${m - n + 1}轮的逐轮摘要：\n${turnSummaryText}`,
+      },
+    ]
+  }
+
   const out = [{ role: 'system', content: buildSandboxSummaryPrompt(n, m) }]
   for (const msg of messages) {
     if (msg.role === 'gm') out.push({ role: 'assistant', content: msg.content })
@@ -80,13 +111,16 @@ export function applySummaryReplacement(messages, range, content) {
 
 /**
  * @param {object} opts
- * @param {string} opts.apiKey
- * @param {number} opts.n
- * @param {number} opts.m
- * @param {() => SandboxChatMessage[]} opts.getMessages
- * @param {React.Dispatch<React.SetStateAction<SandboxChatMessage[]>>} opts.setMessages
  */
-export async function runSandboxRollingSummary({ apiKey, n, m, getMessages, setMessages }) {
+export async function runSandboxRollingSummary({
+  apiKey,
+  n,
+  m,
+  getMessages,
+  setMessages,
+  getTurnSummaries,
+  setTurnSummaries,
+}) {
   const key = (apiKey || '').trim()
   if (!key) return
 
@@ -95,11 +129,13 @@ export async function runSandboxRollingSummary({ apiKey, n, m, getMessages, setM
   if (!range) return
 
   const expectedFp = fingerprintTurnRange(messages, range)
+  const turnSummaries =
+    typeof getTurnSummaries === 'function' ? getTurnSummaries() : []
 
   try {
     const raw = await postChatNonStream({
       apiKey: key,
-      messages: buildSandboxSummaryApiMessages(messages, n, m),
+      messages: buildSandboxSummaryApiMessages(messages, n, m, turnSummaries),
     })
     const content = normalizeSummaryContent(raw, n, m)
     setMessages((prev) => {
@@ -108,6 +144,9 @@ export async function runSandboxRollingSummary({ apiKey, n, m, getMessages, setM
       if (fingerprintTurnRange(prev, r) !== expectedFp) return prev
       return applySummaryReplacement(prev, r, content)
     })
+    if (typeof setTurnSummaries === 'function') {
+      setTurnSummaries((prev) => prev.filter((s) => s.turn < n || s.turn > m))
+    }
   } catch {
     /* 静默 */
   }

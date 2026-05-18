@@ -1,12 +1,14 @@
 import { postChatNonStream } from '../deepseek.js'
-import { buildPreRollSystemContent, resolveSkillChecks } from '../resolveTurnRolls.js'
+import { buildPreRollSystemContent } from '../resolveTurnRolls.js'
 import { parseJudgeSkillsJson } from '../skillJudge.js'
 import { SANDBOX_JUDGE_SYSTEM_PROMPT } from './config/sandbox_judge_prompt.js'
+import { SANDBOX_ARCHIVE_CMD } from './sandboxArchiveEvent.js'
 import {
   buildSandboxGmPrompt,
   SANDBOX_PRE_ROLL_ADDENDUM,
 } from './config/sandbox_system_prompt.js'
 import { buildSandboxContextMessage } from './sandboxContextInject.js'
+import { resolveSandboxSkillChecks } from './sandboxDice.js'
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -41,6 +43,11 @@ export function applySandboxSkillValues(skills, skillMap) {
  * @param {React.Dispatch<React.SetStateAction<ChatMsg[]>>} o.setMessages
  * @param {React.Dispatch<React.SetStateAction<any[]>>} o.setDiceLog
  * @param {(opts: object) => Promise<boolean>} o.presentGm
+ * @param {number} [o.consecutiveFails]
+ * @param {(n: number) => void} [o.onConsecutiveFailsChange]
+ * @param {'like' | 'dislike' | null} [o.feedback]
+ * @param {import('./sandboxStorage.js').SandboxArchivedEventEntry[]} [o.archivedEvents]
+ * @param {(opts: object) => Promise<boolean>} [o.onArchiveEvent]
  */
 export async function runSandboxPlayerTurn({
   apiKey,
@@ -53,9 +60,21 @@ export async function runSandboxPlayerTurn({
   setMessages,
   setDiceLog,
   presentGm,
+  consecutiveFails = 0,
+  onConsecutiveFailsChange,
+  feedback = null,
+  archivedEvents = [],
+  onArchiveEvent,
 }) {
   const key = apiKey.trim()
   const actionText = userMsg.content
+
+  if (actionText.trim() === SANDBOX_ARCHIVE_CMD) {
+    if (typeof onArchiveEvent === 'function') {
+      return onArchiveEvent({ apiKey: key, snap, userMsg, gmId, gmTs })
+    }
+    return false
+  }
 
   const judgeRaw = await postChatNonStream({
     apiKey: key,
@@ -75,17 +94,21 @@ export async function runSandboxPlayerTurn({
   }
 
   if (skills.length > 0) {
-    const { lines, outcomes } = resolveSkillChecks(skills)
+    const rollResult = resolveSandboxSkillChecks(skills, consecutiveFails)
+    if (typeof onConsecutiveFailsChange === 'function') {
+      onConsecutiveFailsChange(rollResult.consecutiveFails)
+    }
+
     const sysTs = Date.now()
     preSystemMessages.push({
       id: uid(),
       role: 'system',
-      content: buildPreRollSystemContent(lines),
+      content: buildPreRollSystemContent(rollResult.lines),
       ts: sysTs,
     })
 
     setDiceLog((prev) => {
-      const entries = outcomes.map((o) => ({
+      const entries = rollResult.outcomes.map((o) => ({
         id: uid(),
         skillName: o.skillName,
         value: o.value,
@@ -104,7 +127,7 @@ export async function runSandboxPlayerTurn({
     return out
   })
 
-  const systemText = `${buildSandboxGmPrompt(character, world)}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
+  const systemText = `${buildSandboxGmPrompt(character, world, archivedEvents)}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
   const chain = [contextMsg, ...snap, userMsg, ...preSystemMessages]
 
   return presentGm({
@@ -114,5 +137,6 @@ export async function runSandboxPlayerTurn({
     gmId,
     gmTs,
     characterName: character.name,
+    feedback,
   })
 }

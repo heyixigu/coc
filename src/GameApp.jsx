@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { INIT_USER_MESSAGE } from './config/characters.js'
-import { GM_SYSTEM_PROMPT } from './config/system_prompt.js'
+import { buildGmSystemPrompt } from './config/system_prompt.js'
+import { runArchiveEvent } from './archiveEvent.js'
 import { parseCharacterInitJson } from './characterInit.js'
 import { postChatNonStream } from './deepseek.js'
 import { runPlayerTurn } from './playerTurn.js'
@@ -18,7 +19,8 @@ import { useVisualViewportOffset } from './hooks/useVisualViewportOffset.js'
 import { GM_LOADING_PHRASES } from './config/gmLoadingPhrases.js'
 import { fetchValidatedGmReply } from './gmTurn.js'
 import { runRollingSummary } from './rollingSummary.js'
-import { defaultState, loadState, saveState } from './storage.js'
+import { runTurnSummary } from './turnSummary.js'
+import { defaultCocGameState, loadSlot, saveSlot } from './storage.js'
 import { runTypewriter } from './typewriter.js'
 import './App.css'
 
@@ -46,17 +48,19 @@ function judgeClassName(o) {
 }
 
 /**
- * @param {{ apiKey: string, setApiKey: (k: string) => void, bootKey?: number, onReplayPrologue?: () => void, onResetStory?: () => void, onWipeAll?: () => void }} props
+ * @param {{ slotIndex: number, apiKey: string, setApiKey: (k: string) => void, bootKey?: number, onExitToMain?: () => void, onReplayPrologue?: () => void, onResetStory?: () => void, onWipeAll?: () => void }} props
  */
 export default function GameApp({
+  slotIndex,
   apiKey,
   setApiKey,
   bootKey = 0,
+  onExitToMain,
   onReplayPrologue,
   onResetStory,
   onWipeAll,
 }) {
-  const initial = useMemo(() => loadState(), [bootKey])
+  const initial = useMemo(() => loadSlot(slotIndex), [bootKey, slotIndex])
   const [player, setPlayer] = useState(() => initial.player)
   const [partner, setPartner] = useState(() => initial.partner)
   const [messages, setMessages] = useState(() => initial.messages)
@@ -100,6 +104,10 @@ export default function GameApp({
     partner: {},
   }))
   const [scenarioTitle] = useState(() => initial.scenarioTitle || null)
+  const [turnSummaries, setTurnSummaries] = useState(() => initial.turnSummaries ?? [])
+  const [archivedEvents, setArchivedEvents] = useState(() => initial.archivedEvents ?? [])
+  const [eventIndex, setEventIndex] = useState(() => initial.eventIndex ?? 1)
+  const [archiving, setArchiving] = useState(false)
   const [leftDrawerOpen, setLeftDrawerOpen] = useState(false)
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false)
   const [partnerCardOpen, setPartnerCardOpen] = useState(false)
@@ -119,23 +127,67 @@ export default function GameApp({
     player,
     partner,
     messages,
+    diceLog,
     selectedScenario,
+    scenarioTitle,
     playerTurnCount,
     playerItems,
     partnerItems,
     sceneItems,
+    turnSummaries,
+    archivedEvents,
+    eventIndex,
   })
   latestRef.current = {
     apiKey,
     player,
     partner,
     messages,
+    diceLog,
     selectedScenario,
+    scenarioTitle,
     playerTurnCount,
     playerItems,
     partnerItems,
     sceneItems,
+    turnSummaries,
+    archivedEvents,
+    eventIndex,
   }
+
+  const persistGameToSlot = useCallback(
+    (/** @type {{ gmId?: string, gmText?: string } | undefined} */ patch) => {
+      const s = latestRef.current
+      const messagesOut =
+        patch?.gmId && patch.gmText != null
+          ? s.messages.map((m) =>
+              m.id === patch.gmId ? { ...m, content: patch.gmText } : m,
+            )
+          : s.messages
+      saveSlot(slotIndex, {
+        player: s.player,
+        partner: s.partner,
+        messages: messagesOut,
+        diceLog: s.diceLog,
+        prologueComplete: true,
+        selectedScenario: s.selectedScenario,
+        scenarioTitle: s.scenarioTitle,
+        playerTurnCount: s.playerTurnCount,
+        playerItems: s.playerItems,
+        partnerItems: s.partnerItems,
+        sceneItems: s.sceneItems,
+        turnSummaries: s.turnSummaries,
+        archivedEvents: s.archivedEvents,
+        eventIndex: s.eventIndex,
+      })
+    },
+    [slotIndex],
+  )
+
+  const handleExitToMain = useCallback(() => {
+    persistGameToSlot()
+    onExitToMain?.()
+  }, [persistGameToSlot, onExitToMain])
 
   const getInventory = useCallback(
     () => ({
@@ -154,9 +206,43 @@ export default function GameApp({
         m,
         getMessages: () => latestRef.current.messages,
         setMessages,
+        getTurnSummaries: () => latestRef.current.turnSummaries,
+        setTurnSummaries,
       }),
     )
   }, [])
+
+  const onArchiveEvent = useCallback(
+    async ({ apiKey: key, snap, userMsg, gmId, gmTs }) => {
+      setArchiving(true)
+      try {
+        const ok = await runArchiveEvent({
+          apiKey: key,
+          eventIndex: latestRef.current.eventIndex,
+          messages: [...snap, userMsg],
+          archivedEvents: latestRef.current.archivedEvents,
+          userMsg,
+          gmId,
+          gmTs,
+          setMessages,
+          onArchiveComplete: (patch) => {
+            setArchivedEvents(patch.archivedEvents)
+            setTurnSummaries(patch.turnSummaries)
+            setEventIndex(patch.eventIndex)
+            persistGameToSlot()
+          },
+        })
+        if (!ok) setError('封档生成失败，请稍后重试。')
+        return !!ok
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        return false
+      } finally {
+        setArchiving(false)
+      }
+    },
+    [persistGameToSlot],
+  )
 
   const applyRosterFromGmText = useCallback((gmText) => {
     const merged = mergeRosterFromGmText(gmText, latestRef.current.player, latestRef.current.partner)
@@ -263,10 +349,14 @@ export default function GameApp({
         return false
       }
 
+      setMessages((prev) =>
+        prev.map((m) => (m.id === gmId ? { ...m, content: result.text } : m)),
+      )
       setGmUiPhase(null)
+      persistGameToSlot({ gmId, gmText: result.text })
       return true
     },
-    [applyRosterFromGmText],
+    [applyRosterFromGmText, persistGameToSlot],
   )
 
   useEffect(() => {
@@ -290,35 +380,6 @@ export default function GameApp({
   const rosterReady = !!(player && partner)
 
   useEffect(() => {
-    saveState({
-      apiKey,
-      player,
-      partner,
-      messages,
-      diceLog,
-      prologueComplete: true,
-      selectedScenario,
-      scenarioTitle,
-      playerTurnCount,
-      playerItems,
-      partnerItems,
-      sceneItems,
-    })
-  }, [
-    apiKey,
-    player,
-    partner,
-    messages,
-    diceLog,
-    selectedScenario,
-    scenarioTitle,
-    playerTurnCount,
-    playerItems,
-    partnerItems,
-    sceneItems,
-  ])
-
-  useEffect(() => {
     const isMobileViewport = window.matchMedia('(max-width: 768px)').matches
     const scroll = document.querySelector(
       isMobileViewport ? '.mobile-main .chat-scroll' : '.layout-desktop.panel-center .chat-scroll',
@@ -339,7 +400,7 @@ export default function GameApp({
       onResetStory()
       return
     }
-    const d = defaultState()
+    const d = defaultCocGameState()
     setMessages(d.messages)
     setDiceLog(d.diceLog)
     setPendingChecks([])
@@ -419,7 +480,7 @@ export default function GameApp({
             const raw = await postChatNonStream({
               apiKey: key,
               messages: [
-                { role: 'system', content: GM_SYSTEM_PROMPT },
+                { role: 'system', content: buildGmSystemPrompt(latestRef.current.archivedEvents) },
                 { role: 'user', content: INIT_USER_MESSAGE },
               ],
               signal: ac.signal,
@@ -454,6 +515,7 @@ export default function GameApp({
             gmTs,
             presentGm,
             getInventory,
+            archivedEvents: latestRef.current.archivedEvents,
             signal: ac.signal,
           })
 
@@ -513,6 +575,9 @@ export default function GameApp({
       setJudgingTurn(true)
       setPendingChecks([])
 
+      const isArchiveCmd = trimmed === '事件结束，封档'
+      const completedTurn = playerTurnCount + 1
+
       const turnOk = await runPlayerTurn({
         apiKey: apiKey.trim(),
         snap,
@@ -525,16 +590,32 @@ export default function GameApp({
         presentGm,
         getInventory,
         fallbackSkill: FALLBACK_ROLL_SKILL,
+        archivedEvents,
+        onArchiveEvent,
       })
 
       if (turnOk) {
-        setPlayerTurnCount((prev) => {
-          const next = prev + 1
-          if (next > 0 && next % 10 === 0) {
-            enqueueRollingSummary(next - 9, next)
-          }
-          return next
-        })
+        if (!isArchiveCmd) {
+          setPlayerTurnCount((prev) => {
+            const next = prev + 1
+            if (next > 0 && next % 10 === 0) {
+              enqueueRollingSummary(next - 9, next)
+            }
+            return next
+          })
+          queueMicrotask(() => {
+            void runTurnSummary({
+              apiKey: apiKey.trim(),
+              turn: completedTurn,
+              messages: latestRef.current.messages,
+              getTurnSummaries: () => latestRef.current.turnSummaries,
+              setTurnSummaries,
+              onPersist: () => persistGameToSlot(),
+            })
+          })
+        } else {
+          persistGameToSlot()
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -548,10 +629,15 @@ export default function GameApp({
 
   const playerLabel = player?.name || '何以惜顾'
   const showInitWait = loading && bootstrapPhase === 'init'
-  const showJudgeWait = loading && judgingTurn && gmUiPhase == null
+  const showJudgeWait = loading && judgingTurn && gmUiPhase == null && !archiving
   const showGmLoading = gmUiPhase === 'loading'
+  const showArchiving = archiving
   const inputDisabled =
-    loading || inputLocked || gmUiPhase === 'loading' || gmUiPhase === 'typing'
+    loading ||
+    inputLocked ||
+    archiving ||
+    gmUiPhase === 'loading' ||
+    gmUiPhase === 'typing'
   const headerTitle = scenarioTitle || '秘仪残卷'
   const openLeftDrawer = useCallback(() => {
     setRightDrawerOpen(false)
@@ -576,9 +662,11 @@ export default function GameApp({
     miniCardRef: partnerCardRef,
   })
 
-  const inputPlaceholder = inputLocked
-    ? '等待开场白完成后再输入行动……'
-    : '以调查员身份输入行动、对白或检定说明……'
+  const inputPlaceholder = archiving
+    ? '正在封档……'
+    : inputLocked
+      ? '等待开场白完成后再输入行动……'
+      : '以调查员身份输入行动、对白或检定说明……'
 
   const chatBlock = (
     <>
@@ -593,7 +681,7 @@ export default function GameApp({
           .map((m) => (
           <article
             key={m.id}
-            className={`bubble bubble-${m.role}`}
+            className={`bubble bubble-${m.role}${m.isArchive ? ' bubble-archive' : ''}`}
           >
             <div className="bubble-meta">
               {m.role === 'gm' ? '守密人' : m.role === 'system' ? '[系统]' : playerLabel}
@@ -612,6 +700,12 @@ export default function GameApp({
           <div className="bubble bubble-gm pending">
             <div className="bubble-meta">守密人</div>
             <div className="bubble-body dim">正在判定检定并掷骰……</div>
+          </div>
+        )}
+        {showArchiving && (
+          <div className="bubble bubble-gm pending">
+            <div className="bubble-meta">守密人</div>
+            <div className="bubble-body dim">正在封档……</div>
           </div>
         )}
         {showGmLoading && (
@@ -830,6 +924,16 @@ export default function GameApp({
       <div className="app-main layout-desktop">
         <div className="app-grid">
           <aside className="panel panel-left">
+            {onExitToMain ? (
+              <button
+                type="button"
+                className="btn-exit-main"
+                aria-label="返回主界面"
+                onClick={handleExitToMain}
+              >
+                ←
+              </button>
+            ) : null}
             <h2 className="panel-heading">连接</h2>
             {settingsBlock}
             <h2 className="panel-heading">角色状态</h2>
@@ -845,6 +949,16 @@ export default function GameApp({
       <footer className="input-bar layout-desktop">{renderInputBar('desktop')}</footer>
 
       <header className="mobile-top-bar layout-mobile">
+        {onExitToMain ? (
+          <button
+            type="button"
+            className="btn-exit-main btn-touch mobile-exit-trigger"
+            aria-label="返回主界面"
+            onClick={handleExitToMain}
+          >
+            ←
+          </button>
+        ) : null}
         <button
           type="button"
           className="mobile-drawer-trigger btn-touch"

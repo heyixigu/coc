@@ -12,17 +12,32 @@ export const SANDBOX_PRE_ROLL_ADDENDUM = `【本轮检定】
 不需要再插入任何 [ROLL] 标记。`
 
 /**
+ * @typedef {import('../sandboxStorage.js').SandboxArchivedEventEntry} SandboxArchivedEventEntry
+ */
+
+/**
+ * @param {SandboxArchivedEventEntry[]} archivedEvents
+ */
+export function buildSandboxArchivedEventsContext(archivedEvents) {
+  if (!Array.isArray(archivedEvents) || archivedEvents.length === 0) return ''
+  const body = archivedEvents.map((e) => e.summary).join('\n\n')
+  return `以下是本次游戏的历史事件档案，供你参考，无需在回复中提及：
+${body}`
+}
+
+/**
  * @param {SandboxCharacter} character
  * @param {SandboxWorld} world
+ * @param {SandboxArchivedEventEntry[]} [archivedEvents]
  */
-export function buildSandboxGmPrompt(character, world) {
+export function buildSandboxGmPrompt(character, world, archivedEvents = []) {
   const skillLines = SANDBOX_SKILL_NAMES.map(
     (name) => `${name}：${character.skills[name] ?? 5}`,
   ).join('、')
   const items =
     character.items.length > 0 ? character.items.join('、') : '无'
 
-  return `【身份】
+  const base = `【身份】
 你是沙盒跑团模式的守密人（GM / KP）。叙事风格须与当前世界观一致，语气沉浸、连贯。
 本局世界观：${world.name}（${world.subtitle}）
 ${world.flavor}
@@ -79,7 +94,10 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
 
 【投骰】
 当对话中出现 [ROLL_RESULT:技能名:数值:判定] 后，再根据骰点继续写后果。判定为：大成功、成功、失败、大失败。`
+  const archiveCtx = buildSandboxArchivedEventsContext(archivedEvents)
+  return archiveCtx ? `${base}\n\n${archiveCtx}` : base
 }
+
 
 /**
  * @param {SandboxCharacter} character

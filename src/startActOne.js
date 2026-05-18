@@ -1,5 +1,5 @@
 import { buildActOneUserMessage } from './config/act_one_prompt.js'
-import { GM_SYSTEM_PROMPT } from './config/system_prompt.js'
+import { buildGmSystemPrompt } from './config/system_prompt.js'
 import { buildEphemeralItemMessages } from './itemInject.js'
 
 /**
@@ -16,6 +16,7 @@ import { buildEphemeralItemMessages } from './itemInject.js'
  * @param {number} o.gmTs
  * @param {PresentGmFn} o.presentGm
  * @param {() => { playerItems: string[], partnerItems: string[], sceneItems: string[] }} [o.getInventory]
+ * @param {import('./storage.js').ArchivedEventEntry[]} [o.archivedEvents]
  * @param {AbortSignal} [o.signal]
  * @returns {Promise<boolean>}
  */
@@ -26,6 +27,7 @@ export async function runActOneStream({
   gmTs,
   presentGm,
   getInventory,
+  archivedEvents = [],
   signal,
 }) {
   const userMsg = {
@@ -44,7 +46,7 @@ export async function runActOneStream({
 
   return presentGm({
     apiKey: apiKey.trim(),
-    systemText: GM_SYSTEM_PROMPT,
+    systemText: buildGmSystemPrompt(archivedEvents),
     chain,
     gmId,
     gmTs,

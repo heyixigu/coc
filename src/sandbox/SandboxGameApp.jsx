@@ -10,9 +10,11 @@ import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
 import { fetchValidatedSandboxGmReply } from './sandboxGmTurn.js'
 import { mergeCharacterFromGmText } from './sandboxParseGmStatus.js'
 import { runSandboxPlayerTurn } from './sandboxPlayerTurn.js'
+import { runSandboxArchiveEvent } from './sandboxArchiveEvent.js'
 import { runSandboxRollingSummary } from './sandboxRollingSummary.js'
+import { runSandboxTurnSummary } from './sandboxTurnSummary.js'
 import { runSandboxTypewriter } from './sandboxTypewriter.js'
-import { loadSandboxState, saveSandboxState } from './sandboxStorage.js'
+import { loadSandboxSlot, saveSandboxSlot } from './sandboxStorage.js'
 import './SandboxGameApp.css'
 
 const STAT_FLASH_MS = 1000
@@ -33,6 +35,7 @@ const T = {
   keeper: '\u5b88\u5bc6\u4eba',
   system: '[\u7cfb\u7edf]',
   judging: '\u6b63\u5728\u5224\u5b9a\u68c0\u5b9a\u5e76\u6295\u9ab0\u2026\u2026',
+  archiving: '\u6b63\u5728\u5c01\u6863\u2026\u2026',
   formatWarn: '\u5b88\u5bc6\u4eba\u56de\u590d\u683c\u5f0f\u5f02\u5e38\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001',
   placeholder: '\u8f93\u5165\u4f60\u7684\u884c\u52a8\u2026\u2026',
   gmResponding: '\u5b88\u5bc6\u4eba\u6b63\u5728\u56de\u5e94\u2026\u2026',
@@ -84,23 +87,27 @@ function safeSkillValue(character, skillName) {
 
 /**
  * @param {{
+ *   slotIndex: number,
  *   apiKey: string,
  *   setApiKey?: (k: string) => void,
  *   bootKey?: number,
+ *   onExitToMain?: () => void,
  *   onResetStory?: () => void,
  *   onReplayPrologue?: () => void,
  *   onWipeAll?: () => void,
  * }} props
  */
 export default function SandboxGameApp({
+  slotIndex,
   apiKey,
   setApiKey,
   bootKey = 0,
+  onExitToMain,
   onResetStory,
   onReplayPrologue,
   onWipeAll,
 }) {
-  const initial = useMemo(() => loadSandboxState(), [bootKey])
+  const initial = useMemo(() => loadSandboxSlot(slotIndex), [bootKey, slotIndex])
   const worldFull = useMemo(
     () => (initial.world ? getWorldById(initial.world.id) : null),
     [initial.world],
@@ -110,6 +117,9 @@ export default function SandboxGameApp({
   const [messages, setMessages] = useState(() => initial.messages ?? [])
   const [diceLog, setDiceLog] = useState(() => initial.diceLog ?? [])
   const [playerTurnCount, setPlayerTurnCount] = useState(() => initial.playerTurnCount ?? 0)
+  const [consecutiveFails, setConsecutiveFails] = useState(() => initial.consecutiveFails ?? 0)
+  const [lastFeedback, setLastFeedback] = useState(/** @type {null | 'like' | 'dislike'} */ (null))
+  const [feedbackMsgId, setFeedbackMsgId] = useState(/** @type {string | null} */ (null))
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -120,22 +130,85 @@ export default function SandboxGameApp({
   const [statFlash, setStatFlash] = useState({})
   const [leftDrawerOpen, setLeftDrawerOpen] = useState(false)
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false)
+  const [turnSummaries, setTurnSummaries] = useState(() => initial.turnSummaries ?? [])
+  const [archivedEvents, setArchivedEvents] = useState(() => initial.archivedEvents ?? [])
+  const [eventIndex, setEventIndex] = useState(() => initial.eventIndex ?? 1)
+  const [archiving, setArchiving] = useState(false)
 
   const isMobile = useIsMobile()
   const chatEndRef = useRef(null)
   const summaryQueueRef = useRef(Promise.resolve())
   const flashClearRef = useRef(null)
-  const latestRef = useRef({ apiKey, character, messages, playerTurnCount })
+  const latestRef = useRef({
+    apiKey,
+    character,
+    world: initial.world,
+    messages,
+    diceLog,
+    playerTurnCount,
+    consecutiveFails,
+    turnSummaries,
+    archivedEvents,
+    eventIndex,
+  })
 
   useVisualViewportOffset()
 
-  latestRef.current = { apiKey, character, messages, playerTurnCount }
+  latestRef.current = {
+    apiKey,
+    character,
+    world: worldFull
+      ? { id: worldFull.id, name: worldFull.name, flavor: worldFull.flavor }
+      : initial.world,
+    messages,
+    diceLog,
+    playerTurnCount,
+    consecutiveFails,
+    turnSummaries,
+    archivedEvents,
+    eventIndex,
+  }
+
+  const persistSandboxToSlot = useCallback(
+    (/** @type {{ gmId?: string, gmText?: string } | undefined} */ patch) => {
+      const s = latestRef.current
+      if (!s.character || !s.world) return
+      const messagesOut =
+        patch?.gmId && patch.gmText != null
+          ? s.messages.map((m) =>
+              m.id === patch.gmId ? { ...m, content: patch.gmText } : m,
+            )
+          : s.messages
+      saveSandboxSlot(slotIndex, {
+        character: {
+          ...s.character,
+          items: safeItems(s.character),
+          skills: s.character.skills ?? {},
+        },
+        world: s.world,
+        messages: messagesOut,
+        diceLog: s.diceLog,
+        playerTurnCount: s.playerTurnCount,
+        consecutiveFails: s.consecutiveFails,
+        prologueComplete: true,
+        turnSummaries: s.turnSummaries,
+        archivedEvents: s.archivedEvents,
+        eventIndex: s.eventIndex,
+      })
+    },
+    [slotIndex],
+  )
+
+  const handleExitToMain = useCallback(() => {
+    persistSandboxToSlot()
+    onExitToMain?.()
+  }, [persistSandboxToSlot, onExitToMain])
 
   const worldDisplayName = worldFull?.name ?? initial.world?.name ?? ''
   const worldSubtitle = worldFull?.subtitle ?? ''
 
   const inputLocked = gmUiPhase === 'loading' || gmUiPhase === 'typing'
-  const inputDisabled = loading || inputLocked
+  const inputDisabled = loading || inputLocked || archiving
   const inputPlaceholder = inputDisabled ? T.gmResponding : T.placeholder
   const mobileTopTitle = `${worldDisplayName} ${T.dot} ${character?.name ?? ''}`
 
@@ -163,22 +236,6 @@ export default function SandboxGameApp({
     const val = Number.isFinite(n) ? Math.max(0, n) : 0
     setCharacter((c) => (c ? { ...c, [key]: val } : c))
   }, [])
-
-  useEffect(() => {
-    if (!character || !worldFull) return
-    saveSandboxState({
-      character: {
-        ...character,
-        items: safeItems(character),
-        skills: character.skills ?? {},
-      },
-      world: { id: worldFull.id, name: worldFull.name, flavor: worldFull.flavor },
-      messages,
-      diceLog,
-      playerTurnCount,
-      prologueComplete: true,
-    })
-  }, [character, worldFull, messages, diceLog, playerTurnCount])
 
   useEffect(() => {
     const isMobileViewport = window.matchMedia('(max-width: 768px)').matches
@@ -228,7 +285,7 @@ export default function SandboxGameApp({
   }, [])
 
   const presentGm = useCallback(
-    async ({ apiKey: key, systemText, chain, gmId, gmTs, characterName, signal }) => {
+    async ({ apiKey: key, systemText, chain, gmId, gmTs, characterName, signal, feedback = null }) => {
       setGmFormatWarning(false)
       setGmUiPhase('loading')
       const result = await fetchValidatedSandboxGmReply({
@@ -236,6 +293,7 @@ export default function SandboxGameApp({
         systemText,
         chain,
         characterName,
+        feedback,
         signal,
       })
       if (!result.ok) {
@@ -268,9 +326,10 @@ export default function SandboxGameApp({
         return false
       }
       setGmUiPhase(null)
+      persistSandboxToSlot({ gmId, gmText: result.text })
       return true
     },
-    [applyCharacterFromGm],
+    [applyCharacterFromGm, persistSandboxToSlot],
   )
 
   const enqueueRollingSummary = useCallback((n, m) => {
@@ -281,23 +340,47 @@ export default function SandboxGameApp({
         m,
         getMessages: () => latestRef.current.messages,
         setMessages,
+        getTurnSummaries: () => latestRef.current.turnSummaries,
+        setTurnSummaries,
       }),
     )
   }, [])
 
-  const handleSend = async () => {
-    const trimmed = input.trim()
-    if (!trimmed || inputDisabled || !character || !worldFull) return
-    const snap = [...messages]
-    setLoading(true)
-    setError('')
-    setGmFormatWarning(false)
-    try {
-      setInput('')
-      const userMsg = { id: uid(), role: 'player', content: trimmed, ts: Date.now() }
-      const gmId = uid()
-      const gmTs = Date.now()
-      setMessages([...snap, userMsg])
+  const onArchiveEvent = useCallback(
+    async ({ apiKey: key, snap, userMsg, gmId, gmTs }) => {
+      setArchiving(true)
+      try {
+        const ok = await runSandboxArchiveEvent({
+          apiKey: key,
+          eventIndex: latestRef.current.eventIndex,
+          messages: [...snap, userMsg],
+          archivedEvents: latestRef.current.archivedEvents,
+          userMsg,
+          gmId,
+          gmTs,
+          setMessages,
+          onArchiveComplete: (patch) => {
+            setArchivedEvents(patch.archivedEvents)
+            setTurnSummaries(patch.turnSummaries)
+            setEventIndex(patch.eventIndex)
+            persistSandboxToSlot()
+          },
+        })
+        if (!ok) setError('封档生成失败，请稍后重试。')
+        return !!ok
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        return false
+      } finally {
+        setArchiving(false)
+      }
+    },
+    [persistSandboxToSlot],
+  )
+
+  const runSandboxTurn = useCallback(
+    async ({ snap, userMsg, gmId, gmTs, feedback = null, incrementTurnCount = true }) => {
+      if (!character || !worldFull) return false
       setJudgingTurn(true)
       const turnOk = await runSandboxPlayerTurn({
         apiKey: apiKey.trim(),
@@ -310,14 +393,71 @@ export default function SandboxGameApp({
         setMessages,
         setDiceLog,
         presentGm,
+        consecutiveFails,
+        onConsecutiveFailsChange: setConsecutiveFails,
+        feedback,
+        archivedEvents,
+        onArchiveEvent,
       })
-      if (turnOk) {
+      if (turnOk && incrementTurnCount) {
         setPlayerTurnCount((prev) => {
           const next = prev + 1
           if (next > 0 && next % 10 === 0) enqueueRollingSummary(next - 9, next)
+          queueMicrotask(() => {
+            void runSandboxTurnSummary({
+              apiKey: apiKey.trim(),
+              turn: next,
+              messages: latestRef.current.messages,
+              getTurnSummaries: () => latestRef.current.turnSummaries,
+              setTurnSummaries,
+              onPersist: () => persistSandboxToSlot(),
+            })
+          })
           return next
         })
+        setFeedbackMsgId(gmId)
+      } else if (turnOk && !incrementTurnCount) {
+        persistSandboxToSlot()
       }
+      return turnOk
+    },
+    [
+      apiKey,
+      character,
+      worldFull,
+      presentGm,
+      consecutiveFails,
+      enqueueRollingSummary,
+      archivedEvents,
+      onArchiveEvent,
+      persistSandboxToSlot,
+    ],
+  )
+
+  const handleSend = async () => {
+    const trimmed = input.trim()
+    if (!trimmed || inputDisabled || !character || !worldFull) return
+    const snap = [...messages]
+    const feedback = lastFeedback
+    setLoading(true)
+    setError('')
+    setGmFormatWarning(false)
+    setLastFeedback(null)
+    try {
+      setInput('')
+      const userMsg = { id: uid(), role: 'player', content: trimmed, ts: Date.now() }
+      const gmId = uid()
+      const gmTs = Date.now()
+      setMessages([...snap, userMsg])
+      const isArchiveCmd = trimmed === '事件结束，封档'
+      await runSandboxTurn({
+        snap,
+        userMsg,
+        gmId,
+        gmTs,
+        feedback,
+        incrementTurnCount: !isArchiveCmd,
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -326,6 +466,70 @@ export default function SandboxGameApp({
       setLoading(false)
     }
   }
+
+  const handleFeedback = useCallback(
+    (msgId, kind) => {
+      if (loading || gmUiPhase) return
+      if (lastFeedback === kind && feedbackMsgId === msgId) {
+        setLastFeedback(null)
+        setFeedbackMsgId(null)
+      } else {
+        setLastFeedback(kind)
+        setFeedbackMsgId(msgId)
+      }
+    },
+    [loading, gmUiPhase, lastFeedback, feedbackMsgId],
+  )
+
+  const handleRegenerate = useCallback(async () => {
+    if (inputDisabled || !character || !worldFull) return
+    const visible = messages.filter((m) => !m.isSummary)
+    let lastGmIdx = -1
+    for (let i = visible.length - 1; i >= 0; i--) {
+      if (visible[i].role === 'gm') {
+        lastGmIdx = i
+        break
+      }
+    }
+    if (lastGmIdx < 0) return
+    const gmMsg = visible[lastGmIdx]
+    let playerIdx = -1
+    for (let i = lastGmIdx - 1; i >= 0; i--) {
+      if (visible[i].role === 'player') {
+        playerIdx = i
+        break
+      }
+    }
+    if (playerIdx < 0) return
+    const playerMsg = visible[playerIdx]
+    const snap = visible.slice(0, playerIdx)
+
+    setLoading(true)
+    setError('')
+    setGmFormatWarning(false)
+    setLastFeedback(null)
+    setFeedbackMsgId(null)
+    setMessages((prev) => prev.filter((m) => m.id !== gmMsg.id))
+
+    try {
+      const gmId = uid()
+      const gmTs = Date.now()
+      await runSandboxTurn({
+        snap,
+        userMsg: playerMsg,
+        gmId,
+        gmTs,
+        feedback: null,
+        incrementTurnCount: false,
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setJudgingTurn(false)
+      setGmUiPhase(null)
+      setLoading(false)
+    }
+  }, [inputDisabled, character, worldFull, messages, runSandboxTurn])
 
   if (!character || !worldFull) {
     return (
@@ -338,8 +542,18 @@ export default function SandboxGameApp({
   }
 
   const items = safeItems(character)
-  const showJudgeWait = loading && judgingTurn && gmUiPhase == null
+  const showJudgeWait = loading && judgingTurn && gmUiPhase == null && !archiving
+  const showArchiving = archiving
   const showGmLoading = gmUiPhase === 'loading'
+  const feedbackBusy = Boolean(loading || judgingTurn || gmUiPhase)
+
+  const latestGmId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (!m.isSummary && m.role === 'gm') return m.id
+    }
+    return null
+  }, [messages])
 
   const settingsBlock = (
     <label className="field">
@@ -426,7 +640,10 @@ export default function SandboxGameApp({
         {messages
           .filter((m) => !m.isSummary)
           .map((m) => (
-            <article key={m.id} className={`bubble bubble-${m.role}`}>
+            <article
+              key={m.id}
+              className={`bubble bubble-${m.role}${m.isArchive ? ' bubble-archive' : ''}`}
+            >
               <div className="bubble-meta">
                 {m.role === 'gm'
                   ? T.keeper
@@ -438,12 +655,51 @@ export default function SandboxGameApp({
                 </time>
               </div>
               <div className="bubble-body">{m.content}</div>
+              {m.role === 'gm' ? (
+                <div className="gm-feedback-bar">
+                  <button
+                    type="button"
+                    className={`gm-feedback-btn${lastFeedback === 'like' && feedbackMsgId === m.id ? ' is-active' : ''}`}
+                    aria-label="点赞"
+                    disabled={feedbackBusy}
+                    onClick={() => handleFeedback(m.id, 'like')}
+                  >
+                    👍
+                  </button>
+                  <button
+                    type="button"
+                    className={`gm-feedback-btn${lastFeedback === 'dislike' && feedbackMsgId === m.id ? ' is-active' : ''}`}
+                    aria-label="点踩"
+                    disabled={feedbackBusy}
+                    onClick={() => handleFeedback(m.id, 'dislike')}
+                  >
+                    👎
+                  </button>
+                  {m.id === latestGmId ? (
+                    <button
+                      type="button"
+                      className="gm-feedback-btn gm-feedback-btn--regen"
+                      aria-label="重新生成"
+                      disabled={feedbackBusy}
+                      onClick={() => void handleRegenerate()}
+                    >
+                      🔄
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </article>
           ))}
         {showJudgeWait ? (
           <div className="bubble bubble-gm pending">
             <div className="bubble-meta">{T.keeper}</div>
             <div className="bubble-body dim">{T.judging}</div>
+          </div>
+        ) : null}
+        {showArchiving ? (
+          <div className="bubble bubble-gm pending">
+            <div className="bubble-meta">{T.keeper}</div>
+            <div className="bubble-body dim">{T.archiving}</div>
           </div>
         ) : null}
         {showGmLoading ? (
@@ -556,6 +812,16 @@ export default function SandboxGameApp({
 
       <div className="sandbox-layout layout-desktop">
         <aside className="sandbox-panel sandbox-panel-left">
+          {onExitToMain ? (
+            <button
+              type="button"
+              className="btn-exit-main"
+              aria-label="返回主界面"
+              onClick={handleExitToMain}
+            >
+              ←
+            </button>
+          ) : null}
           <div className="sandbox-panel-head">{T.rolePanel}</div>
           <div className="sandbox-panel-body">
             <p className="sandbox-char-world muted small">
@@ -582,6 +848,16 @@ export default function SandboxGameApp({
       </div>
 
       <header className="mobile-top-bar layout-mobile">
+        {onExitToMain ? (
+          <button
+            type="button"
+            className="btn-exit-main btn-touch mobile-exit-trigger"
+            aria-label="返回主界面"
+            onClick={handleExitToMain}
+          >
+            ←
+          </button>
+        ) : null}
         <button
           type="button"
           className="mobile-drawer-trigger btn-touch"

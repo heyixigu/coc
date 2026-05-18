@@ -83,6 +83,28 @@ export const GM_SYSTEM_PROMPT = `【身份】
 【叙事风格补充】
 你是克苏鲁的呼唤跑团的守密人。叙事基调是horror与悬疑：真相是可怕的，理智是脆弱的，人类在宇宙尺度上渺小而无助。叙事风格参考洛夫克拉夫特与黑色电影：压抑、阴暗、细节丰富，恐惧感来自未知与暗示而非直白展示。SAN值的流失应当有充分的叙事铺垫，不可随意扣减。NPC各有隐秘动机，真相往往比表象更令人不安。保持克制，恐惧需要积累，不要在第一轮就暴露所有威胁。`
 
+/**
+ * @typedef {import('../storage.js').ArchivedEventEntry} ArchivedEventEntry
+ */
+
+/**
+ * @param {ArchivedEventEntry[]} archivedEvents
+ */
+export function buildArchivedEventsContext(archivedEvents) {
+  if (!Array.isArray(archivedEvents) || archivedEvents.length === 0) return ''
+  const body = archivedEvents.map((e) => e.summary).join('\n\n')
+  return `以下是本次游戏的历史事件档案，供你参考，无需在回复中提及：
+${body}`
+}
+
+/**
+ * @param {ArchivedEventEntry[]} [archivedEvents]
+ */
+export function buildGmSystemPrompt(archivedEvents = []) {
+  const ctx = buildArchivedEventsContext(archivedEvents)
+  return ctx ? `${GM_SYSTEM_PROMPT}\n\n${ctx}` : GM_SYSTEM_PROMPT
+}
+
 /** 玩家回合：检定结果已预先注入 system 消息时使用 */
 export const GM_PRE_ROLL_NARRATIVE_ADDENDUM = `【本轮检定】
 骰子结果已由系统在同轮玩家消息之后提供（若干行 [ROLL_RESULT:技能名:投掷值:判定]）。
