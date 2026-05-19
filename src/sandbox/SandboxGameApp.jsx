@@ -11,11 +11,15 @@ import { fetchValidatedSandboxGmReply } from './sandboxGmTurn.js'
 import { mergeSandboxFromGmText } from './sandboxParseGmStatus.js'
 import { runSandboxPlayerTurn } from './sandboxPlayerTurn.js'
 import { runSandboxArchiveEvent } from './sandboxArchiveEvent.js'
+import { rollbackSandboxExtractForTurn } from './sandboxExtractRollback.js'
 import { runSandboxRollingSummary } from './sandboxRollingSummary.js'
 import { runSandboxTurnSummary } from './sandboxTurnSummary.js'
 import { runSandboxTypewriter } from './sandboxTypewriter.js'
 import TimelineOverlay from './components/TimelineOverlay.jsx'
+import { SandboxLeftPanelTabs, SandboxRightPanelTabs } from './components/SandboxSidePanels.jsx'
 import {
+  defaultPlayerInventory,
+  inventoryToLegacyItemNames,
   loadEventTimeline,
   loadQuestState,
   loadSandboxSlot,
@@ -50,6 +54,7 @@ const T = {
   gmResponding: '\u5b88\u5bc6\u4eba\u6b63\u5728\u56de\u5e94\u2026\u2026',
   send: '\u53d1\u9001',
   diceLog: '\u6295\u9ab0\u8bb0\u5f55',
+  rightPanel: '\u5192\u9669\u72b6\u6001',
   worldState: '\u4e16\u754c\u72b6\u6001',
   worldStateEmpty:
     '\u5192\u9669\u5f00\u59cb\u540e\u5c06\u81ea\u52a8\u8ffd\u8e2a\u4e16\u754c\u72b6\u6001',
@@ -59,6 +64,24 @@ const T = {
   questSide: '\u652f\u7ebf',
   questCompleted: '\u5df2\u5b8c\u6210',
   questFailed: '\u5df2\u5931\u8d25',
+  playerTab: '\u4e3b\u89d2',
+  companionsTab: '\u89d2\u8272',
+  basics: '\u57fa\u7840\u4fe1\u606f',
+  equipped: '\u88c5\u5907\u680f',
+  carried: '\u7269\u54c1\u680f',
+  noEquipped: '\u6682\u65e0\u88c5\u5907',
+  emptyBag: '\u80cc\u5305\u7a7a\u7a7a',
+  worldTab: '\u4e16\u754c',
+  questTab: '\u4efb\u52a1',
+  diceTab: '\u9ab0\u5b50',
+  factions: '\u52bf\u529b',
+  locations: '\u5730\u70b9',
+  environment: '\u73af\u5883',
+  noFactions: '\u5c1a\u672a\u53d1\u73b0\u52bf\u529b',
+  noLocations: '\u5c1a\u672a\u8bb0\u5f55\u5730\u70b9',
+  noMainQuest: '\u6682\u65e0\u4e3b\u7ebf\u4efb\u52a1',
+  noSideQuest: '\u6682\u65e0\u652f\u7ebf\u4efb\u52a1',
+  questHistory: '\u5df2\u7ed3\u675f\u4efb\u52a1',
   empty: '\u6682\u65e0',
   diceEmptyLong:
     '\u6682\u65e0\u8bb0\u5f55\u3002\u88c1\u5224\u5224\u5b9a\u540e\u5c06\u81ea\u52a8\u6295\u9ab0\u5e76\u5728\u6b64\u663e\u793a\u3002',
@@ -133,6 +156,16 @@ export default function SandboxGameApp({
 
   const [character, setCharacter] = useState(() => initial.character)
   const [companions, setCompanions] = useState(() => initial.companions ?? [])
+  const [playerInventory, setPlayerInventory] = useState(
+    () => initial.playerInventory ?? defaultPlayerInventory(),
+  )
+  const [leftTab, setLeftTab] = useState('player')
+  const [rightTab, setRightTab] = useState('world')
+
+  useEffect(() => {
+    const hasActive = companions.some((c) => c.status === 'active')
+    if (!hasActive && leftTab === 'companions') setLeftTab('player')
+  }, [companions, leftTab])
   const [messages, setMessages] = useState(() => initial.messages ?? [])
   const [diceLog, setDiceLog] = useState(() => initial.diceLog ?? [])
   const [playerTurnCount, setPlayerTurnCount] = useState(() => initial.playerTurnCount ?? 0)
@@ -168,6 +201,7 @@ export default function SandboxGameApp({
     apiKey,
     character,
     companions,
+    playerInventory,
     world: initial.world,
     messages,
     diceLog,
@@ -184,6 +218,7 @@ export default function SandboxGameApp({
     apiKey,
     character,
     companions,
+    playerInventory,
     world: worldFull
       ? { id: worldFull.id, name: worldFull.name, flavor: worldFull.flavor }
       : initial.world,
@@ -210,7 +245,7 @@ export default function SandboxGameApp({
       saveSandboxSlot(slotIndex, {
         character: {
           ...s.character,
-          items: safeItems(s.character),
+          items: inventoryToLegacyItemNames(s.playerInventory ?? defaultPlayerInventory()),
           skills: s.character.skills ?? {},
         },
         world: s.world,
@@ -223,6 +258,7 @@ export default function SandboxGameApp({
         archivedEvents: s.archivedEvents,
         eventIndex: s.eventIndex,
         companions: s.companions ?? [],
+        playerInventory: s.playerInventory ?? defaultPlayerInventory(),
       })
     },
     [slotIndex],
@@ -232,6 +268,16 @@ export default function SandboxGameApp({
     setTimelineEvents(loadEventTimeline(slotIndex).events)
     setWorldState(loadWorldState(slotIndex))
     setQuestState(loadQuestState(slotIndex))
+    const slot = loadSandboxSlot(slotIndex)
+    setPlayerInventory(slot.playerInventory ?? defaultPlayerInventory())
+    setCompanions(slot.companions ?? [])
+    if (slot.character) {
+      setCharacter({
+        ...slot.character,
+        items: safeItems(slot.character),
+        skills: slot.character.skills ?? {},
+      })
+    }
   }, [slotIndex])
 
   const toggleQuestExpanded = useCallback((questId) => {
@@ -267,8 +313,9 @@ export default function SandboxGameApp({
 
   const openRightDrawer = useCallback(() => {
     setLeftDrawerOpen(false)
+    refreshExtractedState()
     setRightDrawerOpen(true)
-  }, [])
+  }, [refreshExtractedState])
 
   useMobileGestures({
     enabled: isMobile,
@@ -319,6 +366,14 @@ export default function SandboxGameApp({
       skills: nextChar.skills ?? {},
     })
     setCompanions(nextCompanions)
+    setPlayerInventory((prev) => ({
+      equipped: prev.equipped,
+      carried: safeItems(nextChar).map((name) => ({
+        name,
+        description: '',
+        quantity: 1,
+      })),
+    }))
     if (flash.hp || flash.mp) {
       setStatFlash(flash)
       if (flashClearRef.current) clearTimeout(flashClearRef.current)
@@ -449,6 +504,7 @@ export default function SandboxGameApp({
       gmTs,
       feedback = null,
       incrementTurnCount = true,
+      regenerate = false,
     }) => {
       if (!character || !worldFull) return false
       setJudgingTurn(true)
@@ -473,6 +529,7 @@ export default function SandboxGameApp({
         slotIndex,
         factTurn,
         onExtractComplete: refreshExtractedState,
+        regenerate,
       })
       if (turnOk && incrementTurnCount) {
         setPlayerTurnCount((prev) => {
@@ -593,6 +650,16 @@ export default function SandboxGameApp({
     setMessages(historyMessages)
     setDiceLog(cleanedDiceLog)
 
+    const rollbackTurn = playerTurnCount
+    if (slotIndex != null && Number.isFinite(slotIndex)) {
+      try {
+        rollbackSandboxExtractForTurn(slotIndex, rollbackTurn)
+        refreshExtractedState()
+      } catch {
+        /* */
+      }
+    }
+
     try {
       const gmId = uid()
       const gmTs = Date.now()
@@ -603,6 +670,7 @@ export default function SandboxGameApp({
         gmTs,
         feedback: null,
         incrementTurnCount: false,
+        regenerate: true,
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -611,7 +679,17 @@ export default function SandboxGameApp({
       setGmUiPhase(null)
       setLoading(false)
     }
-  }, [inputDisabled, character, worldFull, messages, diceLog, runSandboxTurn])
+  }, [
+    inputDisabled,
+    character,
+    worldFull,
+    messages,
+    diceLog,
+    runSandboxTurn,
+    slotIndex,
+    playerTurnCount,
+    refreshExtractedState,
+  ])
 
   if (!character || !worldFull) {
     return (
@@ -623,7 +701,6 @@ export default function SandboxGameApp({
     )
   }
 
-  const items = safeItems(character)
   const showJudgeWait = loading && judgingTurn && gmUiPhase == null && !archiving
   const showArchiving = archiving
   const showGmLoading = gmUiPhase === 'loading'
@@ -655,171 +732,44 @@ export default function SandboxGameApp({
     <SandboxStatCard character={character} flash={statFlash} onChange={updateCharacterStat} />
   )
 
-  const skillsBlock = (
-    <>
-      <h3 className="sandbox-skill-heading">{T.skills}</h3>
-      <ul className="sandbox-skill-readonly">
-        {SANDBOX_SKILL_NAMES.map((n) => (
-          <li key={n}>
-            <span>{n}</span>
-            <span>{safeSkillValue(character, n)}</span>
-          </li>
-        ))}
-      </ul>
-    </>
-  )
+  const panelLabels = {
+    playerTab: T.playerTab,
+    companionsTab: T.companionsTab,
+    basics: T.basics,
+    skills: T.skills,
+    equipped: T.equipped,
+    carried: T.carried,
+    noEquipped: T.noEquipped,
+    emptyBag: T.emptyBag,
+    otherGender: T.otherGender,
+    worldTab: T.worldTab,
+    questTab: T.questTab,
+    diceTab: T.diceTab,
+    factions: T.factions,
+    locations: T.locations,
+    environment: T.environment,
+    noFactions: T.noFactions,
+    noLocations: T.noLocations,
+    noMainQuest: T.noMainQuest,
+    noSideQuest: T.noSideQuest,
+    questHistory: T.questHistory,
+    questMain: T.questMain,
+    questSide: T.questSide,
+    questCompleted: T.questCompleted,
+    questFailed: T.questFailed,
+  }
 
-  const activeCompanions = companions.filter((c) => c.status === 'active')
-
-  const companionsBlock =
-    activeCompanions.length > 0 ? (
-      <>
-        <h3 className="sandbox-skill-heading">{T.companions}</h3>
-        {activeCompanions.map((companion) => (
-          <div key={companion.id} className="companion-panel char-card">
-            <div className="companion-name">{companion.name}</div>
-            <div className="companion-stats stat-row">
-              <span>
-                HP {companion.hp}/{companion.maxHp}
-              </span>
-              <span>
-                MP {companion.mp}/{companion.maxMp}
-              </span>
-            </div>
-            <ul className="companion-skills sandbox-skill-readonly">
-              {SANDBOX_SKILL_NAMES.map((skill) => (
-                <li key={skill}>
-                  <span>{skill}</span>
-                  <span>{companion.skills[skill] ?? 0}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </>
-    ) : null
-
-  const itemsBlock = (
-    <section className="inventory-panel">
-      <h3 className="inventory-heading">{T.items}</h3>
-      <div className="item-block char-card">
-        <h4 className="item-block-title">{character.name}</h4>
-        {items.length === 0 ? (
-          <p className="muted small item-empty">{T.none}</p>
-        ) : (
-          <ul className="item-list">
-            {items.map((item) => (
-              <li key={item} className="item-row">
-                {item}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
-  )
-
-  const worldStateEmpty =
-    worldState.factions.length === 0 &&
-    worldState.locations.length === 0 &&
-    worldState.environment.length === 0 &&
-    worldState.keyItems.length === 0
-
-  const worldStateBlock = (
-    <div className="world-state-panel">
-      <div className="panel-title">{T.worldState}</div>
-
-      {worldState.factions.length > 0 ? (
-        <div className="state-section">
-          <div className="state-section-title">⚔️ 势力</div>
-          {worldState.factions.map((f) => (
-            <div key={f.id} className="state-row">
-              <span className="state-name">{f.name}</span>
-              <span className="state-value">
-                {f.attitudeToPlayer} · {f.currentStatus}
-              </span>
-              <span className="state-turn">第{f.updatedAt}轮</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {worldState.locations.length > 0 ? (
-        <div className="state-section">
-          <div className="state-section-title">📍 地点</div>
-          {worldState.locations.map((l) => (
-            <div key={l.id} className="state-row">
-              <span className="state-name">{l.name}</span>
-              <span className="state-value">{l.status}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {worldState.environment.length > 0 ? (
-        <div className="state-section">
-          <div className="state-section-title">🌤️ 环境</div>
-          {worldState.environment.map((e) => (
-            <div key={e.type} className="state-row">
-              <span className="state-name">{e.type}</span>
-              <span className="state-value">{e.value}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {worldState.keyItems.length > 0 ? (
-        <div className="state-section">
-          <div className="state-section-title">📦 关键物品</div>
-          {worldState.keyItems.map((i) => (
-            <div key={i.id} className="state-row">
-              <span className="state-name">{i.name}</span>
-              <span className="state-value">
-                {i.location} · {i.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {worldStateEmpty ? <div className="state-empty">{T.worldStateEmpty}</div> : null}
-    </div>
-  )
-
-  const mainQuests = questState.quests.filter((q) => q.category === 'main')
-  const sideQuests = questState.quests.filter((q) => q.category === 'side')
-
-  const renderQuestList = (/** @type {import('./sandboxStorage.js').SandboxQuestEntry[]} */ quests) =>
-    quests.map((quest) => (
-      <SandboxQuestItem
-        key={quest.id}
-        quest={quest}
-        expanded={expandedQuestIds.has(quest.id)}
-        onToggle={() => toggleQuestExpanded(quest.id)}
-        labels={{ completed: T.questCompleted, failed: T.questFailed }}
-      />
-    ))
-
-  const questStateBlock = (
-    <div className="quest-state-panel">
-      <div className="panel-title">{T.quests}</div>
-
-      {mainQuests.length > 0 ? (
-        <div className="quest-section">
-          <div className="quest-section-title">📋 {T.questMain}</div>
-          {renderQuestList(mainQuests)}
-        </div>
-      ) : null}
-
-      {sideQuests.length > 0 ? (
-        <div className="quest-section">
-          <div className="quest-section-title">📝 {T.questSide}</div>
-          {renderQuestList(sideQuests)}
-        </div>
-      ) : null}
-
-      {questState.quests.length === 0 ? <div className="quest-empty">{T.questEmpty}</div> : null}
-    </div>
+  const leftPanelTabs = (
+    <SandboxLeftPanelTabs
+      leftTab={leftTab}
+      onLeftTabChange={setLeftTab}
+      character={character}
+      playerInventory={playerInventory}
+      companions={companions}
+      statCard={statCard}
+      labels={panelLabels}
+      safeSkillValue={safeSkillValue}
+    />
   )
 
   const diceBlock = (
@@ -850,16 +800,16 @@ export default function SandboxGameApp({
   )
 
   const rightPanelBlock = (
-    <div className="sandbox-right-panel">
-      {worldStateBlock}
-      <div className="panel-divider" />
-      {questStateBlock}
-      <div className="panel-divider" />
-      <div className="dice-log-panel">
-        <div className="panel-title">{T.diceLog}</div>
-        {diceBlock}
-      </div>
-    </div>
+    <SandboxRightPanelTabs
+      rightTab={rightTab}
+      onRightTabChange={setRightTab}
+      worldState={worldState}
+      questState={questState}
+      expandedQuestIds={expandedQuestIds}
+      onToggleQuest={toggleQuestExpanded}
+      diceBlock={diceBlock}
+      labels={panelLabels}
+    />
   )
 
   const chatBlock = (
@@ -948,11 +898,11 @@ export default function SandboxGameApp({
     <>
       <h2 className="panel-heading">{T.connection}</h2>
       {settingsBlock}
-      <h2 className="panel-heading">{T.characterStatus}</h2>
-      {statCard}
-      {skillsBlock}
-      {companionsBlock}
-      {itemsBlock}
+      <p className="sandbox-char-world muted small">
+        {worldDisplayName}
+        {worldSubtitle ? ` ${T.dot} ${worldSubtitle}` : ''}
+      </p>
+      {leftPanelTabs}
     </>
   )
 
@@ -1063,16 +1013,12 @@ export default function SandboxGameApp({
             </button>
           ) : null}
           <div className="sandbox-panel-head">{T.rolePanel}</div>
-          <div className="sandbox-panel-body">
+          <div className="sandbox-panel-body sandbox-panel-body--tabs">
             <p className="sandbox-char-world muted small">
               {worldDisplayName}
               {worldSubtitle ? ` ${T.dot} ${worldSubtitle}` : ''}
             </p>
-            <p className="muted small">{character.gender || T.otherGender}</p>
-            {statCard}
-            {skillsBlock}
-            {companionsBlock}
-            {itemsBlock}
+            {leftPanelTabs}
           </div>
         </aside>
 
@@ -1123,7 +1069,8 @@ export default function SandboxGameApp({
         <button
           type="button"
           className="mobile-drawer-trigger btn-touch"
-          aria-label={T.diceLog}
+          aria-label={T.rightPanel}
+          title={T.rightPanel}
           aria-expanded={rightDrawerOpen}
           onClick={() => (rightDrawerOpen ? setRightDrawerOpen(false) : openRightDrawer())}
         >
@@ -1144,96 +1091,15 @@ export default function SandboxGameApp({
       </MobileDrawer>
 
       <MobileDrawer side="right" open={rightDrawerOpen} onClose={() => setRightDrawerOpen(false)}>
-        {rightPanelBlock}
+        <div className="sandbox-mobile-right-drawer">
+          <h2 className="panel-heading">{T.rightPanel}</h2>
+          {rightPanelBlock}
+        </div>
       </MobileDrawer>
 
       {showTimeline ? (
         <TimelineOverlay events={timelineEvents} onClose={() => setShowTimeline(false)} />
       ) : null}
     </div>
-  )
-}
-
-/**
- * @param {{
- *   quest: import('./sandboxStorage.js').SandboxQuestEntry,
- *   expanded: boolean,
- *   onToggle: () => void,
- *   labels: { completed: string, failed: string },
- * }} props
- */
-function SandboxQuestItem({ quest, expanded, onToggle, labels }) {
-  const isDone = quest.status === 'completed' || quest.status === 'failed'
-  const folded = isDone && !expanded
-  const statusLabel = quest.status === 'completed' ? labels.completed : labels.failed
-
-  return (
-    <div
-      className={`quest-item quest-${quest.status}${folded ? ' quest-item--folded' : ''}`}
-      onClick={isDone ? onToggle : undefined}
-      onKeyDown={
-        isDone
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onToggle()
-              }
-            }
-          : undefined
-      }
-      role={isDone ? 'button' : undefined}
-      tabIndex={isDone ? 0 : undefined}
-    >
-      <div className="quest-item-head">
-        <div className={`quest-title quest-title--${quest.category}`}>{quest.title}</div>
-        {isDone ? <span className="quest-status-badge">{statusLabel}</span> : null}
-      </div>
-      {!folded ? (
-        <div className="quest-objectives">
-          {quest.objectives.map((obj) => (
-            <div key={obj.id} className={`quest-obj${obj.completed ? ' completed' : ''}`}>
-              {obj.completed ? '✓' : '○'} {obj.description}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * @param {{
- *   character: import('./sandboxStorage.js').SandboxCharacter,
- *   flash?: { hp?: 'up'|'down', mp?: 'up'|'down' },
- *   onChange: (key: string, v: string) => void,
- * }} props
- */
-function SandboxStatCard({ character, flash = {}, onChange }) {
-  return (
-    <section className="char-card">
-      <h3>{character.name}</h3>
-      <div className="stat-row">
-        <label>
-          HP
-          <input
-            type="number"
-            min={0}
-            className={statFlashClass(flash.hp)}
-            value={character.hp}
-            onChange={(e) => onChange('hp', e.target.value)}
-          />
-        </label>
-        <label>
-          MP
-          <input
-            type="number"
-            min={0}
-            className={statFlashClass(flash.mp)}
-            value={character.mp}
-            onChange={(e) => onChange('mp', e.target.value)}
-          />
-        </label>
-      </div>
-    </section>
   )
 }

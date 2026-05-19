@@ -357,6 +357,7 @@
   flex: 1;
   min-width: 0;
   padding-right: 2rem;
+  padding-bottom: 1.75rem;
 }
 
 .screen-slot-card-line {
@@ -379,6 +380,39 @@
 
 .screen-slot-sep {
   opacity: 0.55;
+}
+
+.screen-slot-actions {
+  position: absolute;
+  bottom: 0.55rem;
+  left: 0.65rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.screen-slot-action-btn {
+  font: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.45rem;
+  border-radius: 2px;
+  border: 1px solid rgba(120, 90, 70, 0.45);
+  background: rgba(28, 24, 20, 0.92);
+  color: rgba(200, 185, 155, 0.9);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.screen-slot-action-btn:hover {
+  border-color: rgba(180, 140, 90, 0.55);
+  color: #ebe0c8;
+}
+
+.screen-slot-card--empty + .screen-slot-actions {
+  bottom: 0.75rem;
 }
 
 .screen-slot-delete {

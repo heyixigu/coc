@@ -1,4 +1,5 @@
 import { postChatNonStream } from '../deepseek.js'
+import { rollbackSandboxExtractForTurn } from './sandboxExtractRollback.js'
 import { mergeNpcArchive } from './sandboxNpcExtractor.js'
 import {
   getActiveFacts,
@@ -12,9 +13,18 @@ import {
   saveFactDatabase,
   saveNpcArchive,
   saveNpcMemoryGraph,
+  loadSandboxSlot,
   saveQuestState,
+  saveSandboxSlot,
   saveWorldState,
 } from './sandboxStorage.js'
+import {
+  applyInventoryExtractToSlotState,
+  formatCompanionInventoryForExtractPrompt,
+  formatPlayerInventoryForExtractPrompt,
+  normalizeCompanionInventoryExtracts,
+  normalizePlayerInventoryExtract,
+} from './sandboxInventoryExtract.js'
 
 /**
  * @typedef {import('./sandboxStorage.js').SandboxFactCategory} SandboxFactCategory
@@ -116,6 +126,8 @@ import {
  *   worldStateUpdates: WorldStateUpdates | null,
  *   questUpdates: QuestUpdates | null,
  *   memoryGraphUpdates: MemoryGraphUpdates | null,
+ *   playerInventory: import('./sandboxInventoryExtract.js').PlayerInventoryExtract | null,
+ *   companionInventoryUpdates: import('./sandboxInventoryExtract.js').CompanionInventoryExtract[],
  * }} AllStateExtractResult
  */
 
@@ -541,6 +553,15 @@ function parseAllStateExtractJson(raw) {
       memoryGraphUpdates = outMg
     }
 
+    let playerInventory = null
+    if (o.playerInventory != null && typeof o.playerInventory === 'object') {
+      playerInventory = normalizePlayerInventoryExtract(o.playerInventory)
+    }
+
+    const companionInventoryUpdates = normalizeCompanionInventoryExtracts(
+      o.companionInventoryUpdates,
+    )
+
     return {
       newFacts,
       updatedFacts,
@@ -549,6 +570,8 @@ function parseAllStateExtractJson(raw) {
       worldStateUpdates,
       questUpdates,
       memoryGraphUpdates,
+      playerInventory,
+      companionInventoryUpdates,
     }
   } catch {
     return null
@@ -937,6 +960,8 @@ function buildAllStateExtractPrompt(
   existingMemoryGraph,
   existingWorldState,
   activeQuests,
+  playerInventory,
+  companions,
 ) {
   const factLines =
     activeFacts.length > 0
@@ -983,8 +1008,12 @@ function buildAllStateExtractPrompt(
     ws.locations.map((l) => `${l.name}(${l.status})`).join('、') || '暂无'
   const wsEnv =
     ws.environment.map((e) => `${e.type}:${e.value}`).join('、') || '暂无'
-  const wsItems =
-    ws.keyItems.map((i) => `${i.name}(${i.location}·${i.status})`).join('、') || '暂无'
+
+  const playerInvText = formatPlayerInventoryForExtractPrompt(playerInventory)
+  const companionInvText =
+    companions.length > 0
+      ? companions.map((c) => formatCompanionInventoryForExtractPrompt(c)).join('\n')
+      : '暂无'
 
   const questLines =
     activeQuests.length > 0
@@ -996,7 +1025,7 @@ function buildAllStateExtractPrompt(
           .join('\n')
       : '暂无'
 
-  return `你是一个跑团状态提取器。请从以下GM回复中同时提取六类信息。
+  return `你是一个跑团状态提取器。请从以下GM回复中同时提取各类结构化信息。
 
 === 现有数据 ===
 
@@ -1016,7 +1045,12 @@ ${memoryEdgeLines}
 势力：${wsFactions}
 地点：${wsLocations}
 环境：${wsEnv}
-关键物品：${wsItems}
+
+主角物品（装备栏=穿戴/手持，物品栏=背包携带）：
+${playerInvText}
+
+伙伴物品与状态：
+${companionInvText}
 
 进行中任务：
 ${questLines}
@@ -1069,11 +1103,30 @@ ${gmReply}
     ],
     "environment": [
       { "type": "天气|时间|季节", "value": "值" }
-    ],
-    "keyItems": [
-      { "name": "物品名", "location": "位置", "status": "状态", "isNew": true }
     ]
   },
+  "playerInventory": {
+    "equipped": [
+      { "name": "物品名", "description": "简述" }
+    ],
+    "carried": [
+      { "name": "物品名", "description": "简述", "quantity": 1 }
+    ]
+  },
+  "companionInventoryUpdates": [
+    {
+      "name": "伙伴名",
+      "role": "定位",
+      "hp": 0,
+      "maxHp": 0,
+      "mp": 0,
+      "maxMp": 0,
+      "skills": { "战斗": 0, "交涉": 0, "感知": 0, "潜行": 0, "学识": 0, "意志": 0, "体魄": 0 },
+      "equipped": [{ "name": "物品名", "description": "简述" }],
+      "carried": [{ "name": "物品名", "description": "简述", "quantity": 1 }],
+      "status": "active|dead|departed"
+    }
+  ],
   "questUpdates": {
     "newQuests": [
       {
@@ -1130,7 +1183,22 @@ ${gmReply}
 - memoryGraphUpdates 只包含本轮有记忆变化或新关系的 NPC
 - newMemory 只在 NPC 与玩家有实质互动时填写，路人 NPC 忽略
 - 态度变化只在有明确原因时记录
-- NPC 之间的关系只在 GM 明确描述时提取，不推测`
+- NPC 之间的关系只在 GM 明确描述时提取，不推测
+- playerInventory 与 companionInventoryUpdates 若输出则表示该角色当前完整装备/背包快照（全量列表），物品丢失/损毁/转让后从列表移除
+- equipped=穿戴或手持，carried=背包未穿戴；伙伴 status=departed 表示离队`
+}
+
+function updateInventoryFromExtract(parsed, slotIndex) {
+  if (!parsed.playerInventory && !parsed.companionInventoryUpdates.length) return false
+  const slot = loadSandboxSlot(slotIndex)
+  const next = applyInventoryExtractToSlotState(
+    slot,
+    parsed.playerInventory,
+    parsed.companionInventoryUpdates,
+  )
+  if (!next) return false
+  saveSandboxSlot(slotIndex, next)
+  return true
 }
 
 function hasQuestExtractChanges(questUpdates) {
@@ -1152,6 +1220,8 @@ function hasAnyExtractChanges(parsed) {
   if (parsed.npcUpdates.length) return true
   if (hasQuestExtractChanges(parsed.questUpdates)) return true
   if (hasMemoryGraphExtractChanges(parsed.memoryGraphUpdates)) return true
+  if (parsed.playerInventory) return true
+  if (parsed.companionInventoryUpdates.length > 0) return true
   const ws = parsed.worldStateUpdates
   if (!ws) return false
   return (
@@ -1170,6 +1240,7 @@ function hasAnyExtractChanges(parsed) {
  * @param {number} opts.currentTurn
  * @param {number} opts.slotIndex
  * @param {() => void} [opts.onComplete]
+ * @param {boolean} [opts.rollbackBeforeExtract] 重新生成时先回滚 currentTurn 的提取结果
  */
 export async function extractAllStateUpdates({
   apiKey,
@@ -1177,10 +1248,20 @@ export async function extractAllStateUpdates({
   currentTurn,
   slotIndex,
   onComplete,
+  rollbackBeforeExtract = false,
 }) {
   const key = (apiKey || '').trim()
   const text = (gmReply || '').trim()
   if (!key || !text || !slotIndex) return
+
+  if (rollbackBeforeExtract) {
+    try {
+      rollbackSandboxExtractForTurn(slotIndex, currentTurn)
+      if (typeof onComplete === 'function') onComplete()
+    } catch {
+      /* */
+    }
+  }
 
   const activeFacts = getActiveFacts(slotIndex)
   const npcArchive = loadNpcArchive(slotIndex)
@@ -1188,6 +1269,7 @@ export async function extractAllStateUpdates({
   const worldState = loadWorldState(slotIndex)
   const questState = loadQuestState(slotIndex)
   const activeQuests = questState.quests.filter((q) => q.status === 'active')
+  const slot = loadSandboxSlot(slotIndex)
   const prompt = buildAllStateExtractPrompt(
     text,
     activeFacts,
@@ -1195,6 +1277,8 @@ export async function extractAllStateUpdates({
     memoryGraph,
     worldState,
     activeQuests,
+    slot.playerInventory,
+    slot.companions ?? [],
   )
 
   let raw
@@ -1241,6 +1325,11 @@ export async function extractAllStateUpdates({
   }
   try {
     if (updateNpcMemoryGraphFromExtract(parsed, currentTurn, slotIndex)) changed = true
+  } catch {
+    /* */
+  }
+  try {
+    if (updateInventoryFromExtract(parsed, slotIndex)) changed = true
   } catch {
     /* */
   }

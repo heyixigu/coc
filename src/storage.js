@@ -579,6 +579,90 @@ export function deleteSlot(slotIndex) {
   removeCocSlotKeys(slotIndex)
 }
 
+const SLOT_EXPORT_VERSION = 1
+
+/**
+ * @typedef {{
+ *   version: number,
+ *   mode: 'sandbox' | 'coc',
+ *   slotIndex: number,
+ *   exportedAt: string,
+ *   fields: Record<string, unknown>,
+ * }} CocSlotExportBundle
+ */
+
+/** @param {number} slotIndex 1-based @returns {CocSlotExportBundle | null} */
+export function exportCocSlot(slotIndex) {
+  /** @type {Record<string, unknown>} */
+  const fields = {}
+  let hasAny = false
+  for (const field of COC_SLOT_FIELDS) {
+    const raw = localStorage.getItem(getSlotKey(slotIndex, field))
+    if (raw == null) continue
+    try {
+      fields[field] = JSON.parse(raw)
+      hasAny = true
+    } catch {
+      /* skip corrupt */
+    }
+  }
+  const legacyKey = `coc-save-slot-${slotIndex}`
+  const legacyRaw = localStorage.getItem(legacyKey)
+  if (legacyRaw != null) {
+    try {
+      fields.__legacySaveSlot = JSON.parse(legacyRaw)
+      hasAny = true
+    } catch {
+      /* */
+    }
+  }
+  if (!hasAny) return null
+  return {
+    version: SLOT_EXPORT_VERSION,
+    mode: 'coc',
+    slotIndex,
+    exportedAt: new Date().toISOString(),
+    fields,
+  }
+}
+
+/**
+ * @param {number} slotIndex 1-based
+ * @param {unknown} data
+ */
+export function importCocSlot(slotIndex, data) {
+  const bundle = normalizeCocSlotExportBundle(data)
+  removeCocSlotKeys(slotIndex)
+  for (const [field, value] of Object.entries(bundle.fields)) {
+    if (field === '__legacySaveSlot') {
+      writeJsonKey(`coc-save-slot-${slotIndex}`, value)
+      continue
+    }
+    writeJsonKey(getSlotKey(slotIndex, field), value)
+  }
+}
+
+/** @param {unknown} data @returns {CocSlotExportBundle} */
+function normalizeCocSlotExportBundle(data) {
+  if (!data || typeof data !== 'object') throw new Error('invalid bundle')
+  const o = /** @type {Record<string, unknown>} */ (data)
+  if (o.mode != null && o.mode !== 'coc') throw new Error('mode mismatch')
+  const fields =
+    o.fields && typeof o.fields === 'object' && !Array.isArray(o.fields)
+      ? /** @type {Record<string, unknown>} */ (o.fields)
+      : o
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+    throw new Error('invalid fields')
+  }
+  return {
+    version: typeof o.version === 'number' ? o.version : SLOT_EXPORT_VERSION,
+    mode: 'coc',
+    slotIndex: typeof o.slotIndex === 'number' ? o.slotIndex : 0,
+    exportedAt: typeof o.exportedAt === 'string' ? o.exportedAt : '',
+    fields: /** @type {Record<string, unknown>} */ (fields),
+  }
+}
+
 export function wipeCocSlots() {
   for (let i = 1; i <= COC_SLOT_COUNT; i++) deleteSlot(i)
 }

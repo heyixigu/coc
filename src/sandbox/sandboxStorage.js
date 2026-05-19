@@ -1,3 +1,4 @@
+import { exportCocSlot, importCocSlot } from '../storage.js'
 import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
 
 const SANDBOX_SLOT_COUNT = 4
@@ -126,14 +127,26 @@ const SANDBOX_SLOT_COUNT = 4
  * }} SandboxNpcMemoryGraph */
 /** @typedef {'active' | 'dead' | 'left'} SandboxCompanionStatus */
 /** @typedef {{
+ *   name: string,
+ *   description: string,
+ *   quantity?: number,
+ * }} SandboxInventoryItem */
+/** @typedef {{
+ *   equipped: SandboxInventoryItem[],
+ *   carried: SandboxInventoryItem[],
+ * }} SandboxPlayerInventory */
+/** @typedef {{
  *   id: string,
  *   name: string,
+ *   role: string,
  *   skills: SandboxSkills,
  *   hp: number,
  *   maxHp: number,
  *   mp: number,
  *   maxMp: number,
  *   status: SandboxCompanionStatus,
+ *   equipped: SandboxInventoryItem[],
+ *   carried: SandboxInventoryItem[],
  * }} SandboxCompanion */
 /** @typedef {{ id: string, role: 'gm' | 'player' | 'system', content: string, ts: number, isSummary?: boolean, isArchive?: boolean }} SandboxChatMessage */
 /** @typedef {'extreme' | 'success' | 'fail' | 'fumble'} SandboxD100Outcome */
@@ -176,8 +189,14 @@ const SANDBOX_SLOT_COUNT = 4
  *   archivedEvents: SandboxArchivedEventEntry[],
  *   eventIndex: number,
  *   companions: SandboxCompanion[],
+ *   playerInventory: SandboxPlayerInventory,
  * }} SandboxState
  */
+
+/** @returns {SandboxPlayerInventory} */
+export function defaultPlayerInventory() {
+  return { equipped: [], carried: [] }
+}
 
 const DEFAULT_SKILLS = () =>
   Object.fromEntries(SANDBOX_SKILL_NAMES.map((n) => [n, 50]))
@@ -205,6 +224,62 @@ export function defaultSandboxState() {
     archivedEvents: [],
     eventIndex: 1,
     companions: [],
+    playerInventory: defaultPlayerInventory(),
+  }
+}
+
+/** @param {unknown} raw @returns {SandboxInventoryItem[]} */
+export function normalizeInventoryItems(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const e of raw) {
+    if (!e || typeof e !== 'object') continue
+    const o = /** @type {Record<string, unknown>} */ (e)
+    const name = typeof o.name === 'string' ? o.name.trim().slice(0, 64) : ''
+    if (!name) continue
+    const qty = Number(o.quantity)
+    const item = {
+      name,
+      description: typeof o.description === 'string' ? o.description.trim().slice(0, 200) : '',
+    }
+    if (Number.isFinite(qty) && qty > 1) item.quantity = Math.min(999, Math.trunc(qty))
+    out.push(item)
+  }
+  return out.slice(0, 64)
+}
+
+/** @param {unknown} raw @returns {SandboxPlayerInventory} */
+export function normalizePlayerInventory(raw) {
+  if (!raw || typeof raw !== 'object') return defaultPlayerInventory()
+  const o = /** @type {Record<string, unknown>} */ (raw)
+  return {
+    equipped: normalizeInventoryItems(o.equipped),
+    carried: normalizeInventoryItems(o.carried),
+  }
+}
+
+/** @param {SandboxPlayerInventory} inv */
+export function inventoryToLegacyItemNames(inv) {
+  const names = []
+  for (const item of inv.carried) {
+    if (!item.name) continue
+    names.push(item.quantity && item.quantity > 1 ? `${item.name}x${item.quantity}` : item.name)
+  }
+  return names.slice(0, 48)
+}
+
+/** @param {SandboxCharacter | null} character @param {unknown} existingInv */
+export function resolvePlayerInventory(character, existingInv) {
+  const normalized = normalizePlayerInventory(existingInv)
+  if (normalized.equipped.length > 0 || normalized.carried.length > 0) return normalized
+  if (!character) return defaultPlayerInventory()
+  return {
+    equipped: [],
+    carried: normalizeItemList(character.items).map((name) => ({
+      name,
+      description: '',
+      quantity: 1,
+    })),
   }
 }
 
@@ -333,7 +408,7 @@ function normalizeArchivedEvents(raw) {
 }
 
 /** @param {unknown} raw */
-function normalizeCompanionSkills(raw) {
+export function normalizeCompanionSkills(raw) {
   const base = DEFAULT_SKILLS()
   if (!raw || typeof raw !== 'object') return base
   const o = /** @type {Record<string, unknown>} */ (raw)
@@ -364,18 +439,24 @@ function normalizeCompanions(raw) {
     const mp = Number.parseInt(String(o.mp), 10)
     const maxMp = Number.parseInt(String(o.maxMp), 10)
     const statusRaw = typeof o.status === 'string' ? o.status : 'active'
+    const statusNorm =
+      statusRaw === 'departed' ? 'left' : statusRaw
     const status = /** @type {SandboxCompanionStatus} */ (
-      ['active', 'dead', 'left'].includes(statusRaw) ? statusRaw : 'active'
+      ['active', 'dead', 'left'].includes(statusNorm) ? statusNorm : 'active'
     )
+    const role = typeof o.role === 'string' ? o.role.trim().slice(0, 120) : ''
     out.push({
       id,
       name,
+      role,
       skills,
       maxHp: Number.isFinite(maxHp) ? Math.min(999, Math.max(1, maxHp)) : computed.maxHp,
       maxMp: Number.isFinite(maxMp) ? Math.min(999, Math.max(1, maxMp)) : computed.maxMp,
       hp: Number.isFinite(hp) ? Math.min(999, Math.max(0, hp)) : computed.hp,
       mp: Number.isFinite(mp) ? Math.min(999, Math.max(0, mp)) : computed.mp,
       status,
+      equipped: normalizeInventoryItems(o.equipped),
+      carried: normalizeInventoryItems(o.carried),
     })
   }
   return out.slice(0, 32)
@@ -1061,6 +1142,11 @@ function removeSandboxSlotKeys(slotIndex) {
   clearWorldState(slotIndex)
   clearQuestState(slotIndex)
   clearNpcMemoryGraph(slotIndex)
+  try {
+    localStorage.removeItem(getSandboxSlotKey(slotIndex, 'player-inventory'))
+  } catch {
+    /* */
+  }
 }
 
 function isSandboxStateEmpty(gs) {
@@ -1103,9 +1189,10 @@ function assembleSandboxState(slotIndex) {
   const messagesRaw = readJsonKey(getSandboxSlotKey(slotIndex, 'messages'))
   const messages = Array.isArray(messagesRaw) ? messagesRaw : []
   const prologueFlag = readJsonKey(getSandboxSlotKey(slotIndex, 'prologueComplete'))
+  const character = normalizeCharacter(readJsonKey(getSandboxSlotKey(slotIndex, 'character')))
 
   return {
-    character: normalizeCharacter(readJsonKey(getSandboxSlotKey(slotIndex, 'character'))),
+    character,
     world: normalizeWorld(readJsonKey(getSandboxSlotKey(slotIndex, 'world'))),
     messages: messages.map(normalizeMessage).filter(Boolean),
     diceLog: normalizeDiceLog(readJsonKey(getSandboxSlotKey(slotIndex, 'diceLog'))),
@@ -1122,6 +1209,10 @@ function assembleSandboxState(slotIndex) {
     archivedEvents: normalizeArchivedEvents(readJsonKey(getSandboxSlotKey(slotIndex, 'archivedEvents'))),
     eventIndex: normalizeEventIndex(readJsonKey(getSandboxSlotKey(slotIndex, 'eventIndex'))),
     companions: normalizeCompanions(readJsonKey(getSandboxSlotKey(slotIndex, 'companions'))),
+    playerInventory: resolvePlayerInventory(
+      character,
+      readJsonKey(getSandboxSlotKey(slotIndex, 'player-inventory')),
+    ),
   }
 }
 
@@ -1138,6 +1229,10 @@ function persistSandboxState(slotIndex, gs) {
   writeJsonKey(getSandboxSlotKey(slotIndex, 'archivedEvents'), gs.archivedEvents ?? [])
   writeJsonKey(getSandboxSlotKey(slotIndex, 'eventIndex'), gs.eventIndex ?? 1)
   writeJsonKey(getSandboxSlotKey(slotIndex, 'companions'), gs.companions ?? [])
+  writeJsonKey(
+    getSandboxSlotKey(slotIndex, 'player-inventory'),
+    normalizePlayerInventory(gs.playerInventory),
+  )
 
   const meta = buildSandboxSlotMeta(gs)
   writeJsonKey(getSandboxSlotKey(slotIndex, 'meta'), {
@@ -1237,4 +1332,129 @@ export function resetSandboxStory(slotIndex) {
   clearFactDatabase(slotIndex)
   clearEventTimeline(slotIndex)
   return s
+}
+
+const SANDBOX_EXPORT_EXTRA_FIELDS = [
+  NPC_ARCHIVE_FIELD,
+  FACT_DATABASE_FIELD,
+  EVENT_TIMELINE_FIELD,
+  WORLD_STATE_FIELD,
+  QUEST_STATE_FIELD,
+  NPC_MEMORY_GRAPH_FIELD,
+  'player-inventory',
+]
+
+const SANDBOX_EXPORT_ALL_FIELDS = [...SANDBOX_SLOT_FIELDS, ...SANDBOX_EXPORT_EXTRA_FIELDS]
+
+const SLOT_EXPORT_VERSION = 1
+
+/**
+ * @typedef {{
+ *   version: number,
+ *   mode: 'sandbox' | 'coc',
+ *   slotIndex: number,
+ *   exportedAt: string,
+ *   fields: Record<string, unknown>,
+ * }} SlotExportBundle
+ */
+
+/** @param {number} slotIndex 1-based */
+export function exportSandboxSlot(slotIndex) {
+  /** @type {Record<string, unknown>} */
+  const fields = {}
+  let hasAny = false
+  for (const field of SANDBOX_EXPORT_ALL_FIELDS) {
+    const raw = localStorage.getItem(getSandboxSlotKey(slotIndex, field))
+    if (raw == null) continue
+    try {
+      fields[field] = JSON.parse(raw)
+      hasAny = true
+    } catch {
+      /* skip corrupt */
+    }
+  }
+  const legacyKey = `sandbox-save-slot-${slotIndex}`
+  const legacyRaw = localStorage.getItem(legacyKey)
+  if (legacyRaw != null) {
+    try {
+      fields.__legacySaveSlot = JSON.parse(legacyRaw)
+      hasAny = true
+    } catch {
+      /* */
+    }
+  }
+  if (!hasAny) return null
+  return /** @type {SlotExportBundle} */ ({
+    version: SLOT_EXPORT_VERSION,
+    mode: 'sandbox',
+    slotIndex,
+    exportedAt: new Date().toISOString(),
+    fields,
+  })
+}
+
+/**
+ * @param {number} slotIndex 1-based
+ * @param {unknown} data
+ */
+export function importSandboxSlot(slotIndex, data) {
+  const bundle = normalizeSlotExportBundle(data, 'sandbox')
+  removeSandboxSlotKeys(slotIndex)
+  for (const [field, value] of Object.entries(bundle.fields)) {
+    if (field === '__legacySaveSlot') {
+      writeJsonKey(`sandbox-save-slot-${slotIndex}`, value)
+      continue
+    }
+    writeJsonKey(getSandboxSlotKey(slotIndex, field), value)
+  }
+}
+
+/**
+ * @param {'coc' | 'sandbox'} mode
+ * @param {number} slotIndex 1-based
+ * @returns {SlotExportBundle | null}
+ */
+export function exportSlot(slotIndex, mode) {
+  if (mode === 'sandbox') return exportSandboxSlot(slotIndex)
+  if (mode === 'coc') return exportCocSlot(slotIndex)
+  return null
+}
+
+/**
+ * @param {number} slotIndex 1-based
+ * @param {'coc' | 'sandbox'} mode
+ * @param {unknown} data
+ */
+export function importSlot(slotIndex, mode, data) {
+  if (mode === 'sandbox') {
+    importSandboxSlot(slotIndex, data)
+    return
+  }
+  if (mode === 'coc') importCocSlot(slotIndex, data)
+}
+
+/**
+ * @param {unknown} data
+ * @param {'sandbox' | 'coc'} expectedMode
+ * @returns {SlotExportBundle}
+ */
+function normalizeSlotExportBundle(data, expectedMode) {
+  if (!data || typeof data !== 'object') throw new Error('invalid bundle')
+  const o = /** @type {Record<string, unknown>} */ (data)
+  const mode = o.mode === 'sandbox' || o.mode === 'coc' ? o.mode : expectedMode
+  if (mode !== expectedMode) throw new Error('mode mismatch')
+  const fields =
+    o.fields && typeof o.fields === 'object' && !Array.isArray(o.fields)
+      ? /** @type {Record<string, unknown>} */ (o.fields)
+      : o
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+    throw new Error('invalid fields')
+  }
+  return {
+    version: typeof o.version === 'number' ? o.version : SLOT_EXPORT_VERSION,
+    mode,
+    slotIndex: typeof o.slotIndex === 'number' ? o.slotIndex : 0,
+    exportedAt: typeof o.exportedAt === 'string' ? o.exportedAt : '',
+    fields: /** @type {Record<string, unknown>} */ (fields),
+  }
 }

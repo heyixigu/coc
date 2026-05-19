@@ -1,3 +1,4 @@
+import { exportSlot, importSlot } from '../sandbox/sandboxStorage.js'
 import ScreenBackButton from './ScreenBackButton.jsx'
 import './Screens.css'
 
@@ -13,6 +14,7 @@ import './Screens.css'
  *   }>,
  *   onSelectSlot: (slotIndex: number, isEmpty: boolean) => void,
  *   onDeleteSlot: (slotIndex: number) => void,
+ *   onSlotsChanged?: () => void,
  *   onNavigateBack?: () => void,
  * }} props
  */
@@ -21,9 +23,51 @@ export default function SlotSelectScreen({
   slots,
   onSelectSlot,
   onDeleteSlot,
+  onSlotsChanged,
   onNavigateBack,
 }) {
   const modeLabel = mode === 'coc' ? '克苏鲁的呼唤' : '沙盒模式'
+
+  /** @param {number} slotIndex 1-based */
+  const handleExport = (slotIndex) => {
+    const data = exportSlot(slotIndex, mode)
+    if (!data) {
+      alert('该存档槽为空')
+      return
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `秘仪残卷_${mode}_存档${slotIndex}_${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  /** @param {number} slotIndex 1-based */
+  const handleImport = (slotIndex) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+    input.onchange = (e) => {
+      const file = /** @type {HTMLInputElement} */ (e.target).files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        try {
+          const text = /** @type {string} */ (ev.target?.result)
+          const data = JSON.parse(text)
+          importSlot(slotIndex, mode, data)
+          alert(`存档${slotIndex}导入成功`)
+          onSlotsChanged?.()
+        } catch {
+          alert('导入失败：文件格式不正确')
+        }
+      }
+      reader.readAsText(file)
+    }
+    input.click()
+  }
 
   return (
     <div className="screen-root screen-root--scroll">
@@ -67,6 +111,28 @@ export default function SlotSelectScreen({
                     </div>
                   )}
                 </button>
+                <div className="screen-slot-actions">
+                  <button
+                    type="button"
+                    className="screen-slot-action-btn"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleExport(slotIndex)
+                    }}
+                  >
+                    导出
+                  </button>
+                  <button
+                    type="button"
+                    className="screen-slot-action-btn"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleImport(slotIndex)
+                    }}
+                  >
+                    导入
+                  </button>
+                </div>
                 {!slot.isEmpty ? (
                   <button
                     type="button"

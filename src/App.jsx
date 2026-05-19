@@ -270,6 +270,7 @@ export default function App() {
         slots={mode === 'sandbox' ? sandboxSlots : cocSlots}
         onSelectSlot={handleSelectSlot}
         onDeleteSlot={handleDeleteSlot}
+        onSlotsChanged={() => setSlotsRefresh((n) => n + 1)}
         onNavigateBack={navigateBack}
       />
     )
