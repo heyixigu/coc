@@ -3,6 +3,14 @@ import { SANDBOX_WORLD_DETAILS } from './sandbox_world_details.js'
 
 /**
  * @typedef {import('../sandboxStorage.js').SandboxCharacter} SandboxCharacter
+ * @typedef {import('../sandboxStorage.js').SandboxNpcEntry} SandboxNpcEntry
+ * @typedef {import('../sandboxStorage.js').SandboxCompanion} SandboxCompanion
+ * @typedef {import('../sandboxStorage.js').SandboxFactEntry} SandboxFactEntry
+ * @typedef {import('../sandboxStorage.js').SandboxTimelineEvent} SandboxTimelineEvent
+ * @typedef {import('../sandboxStorage.js').SandboxWorldState} SandboxWorldState
+ * @typedef {import('../sandboxStorage.js').SandboxQuestState} SandboxQuestState
+ * @typedef {import('../sandboxStorage.js').SandboxQuestEntry} SandboxQuestEntry
+ * @typedef {import('../sandboxStorage.js').SandboxNpcMemoryGraph} SandboxNpcMemoryGraph
  * @typedef {import('./sandbox_worlds.js').SandboxWorld} SandboxWorld
  */
 
@@ -49,25 +57,175 @@ ${body}`
 }
 
 /**
+ * @param {SandboxNpcEntry[]} relevantNpcs
+ */
+/**
+ * @param {SandboxCompanion[]} companions
+ */
+function buildSandboxCompanionContext(companions) {
+  const active = companions.filter((c) => c.status === 'active')
+  if (active.length === 0) return ''
+  const body = active
+    .map(
+      (c) =>
+        `${c.name}：HP ${c.hp}/${c.maxHp} MP ${c.mp}/${c.maxMp}
+   技能：战斗${c.skills.战斗 ?? 5} 交涉${c.skills.交涉 ?? 5} 感知${c.skills.感知 ?? 5} 潜行${c.skills.潜行 ?? 5} 学识${c.skills.学识 ?? 5} 意志${c.skills.意志 ?? 5} 体魄${c.skills.体魄 ?? 5}`,
+    )
+    .join('\n')
+  return `【当前伙伴】
+${body}`
+}
+
+/**
+ * @param {SandboxFactEntry[]} activeFacts
+ */
+function buildSandboxFactContext(activeFacts) {
+  if (!Array.isArray(activeFacts) || activeFacts.length === 0) return ''
+  const body = activeFacts.map((f) => `• [${f.category}] ${f.content}`).join('\n')
+  return `【已确认事实数据库——全量参考，确保叙事不与以下事实矛盾】
+${body}`
+}
+
+/**
+ * @param {SandboxTimelineEvent[]} recentEvents
+ */
+function buildSandboxTimelineContext(recentEvents) {
+  if (!Array.isArray(recentEvents) || recentEvents.length === 0) return ''
+  const slice = recentEvents.slice(-10)
+  const body = slice
+    .map(
+      (e) =>
+        `第${e.turn}轮 [${e.category}] ${e.title}：${e.description} → ${e.consequence || '无'}`,
+    )
+    .join('\n')
+  return `【近期事件时间线——保持叙事因果一致】
+${body}`
+}
+
+/**
+ * @param {SandboxWorldState} worldState
+ */
+function buildSandboxWorldStateContext(worldState) {
+  const ws = worldState ?? { locations: [], factions: [], environment: [], keyItems: [] }
+  return `【当前世界状态——全量参考】
+⚔️ 势力：${ws.factions.map((f) => `${f.name}(对玩家${f.attitudeToPlayer}·${f.currentStatus})`).join('、') || '暂无'}
+📍 地点：${ws.locations.map((l) => `${l.name}(${l.status})`).join('、') || '暂无'}
+🌤️ 环境：${ws.environment.map((e) => `${e.type}:${e.value}`).join('、') || '暂无'}
+📦 关键物品：${ws.keyItems.map((i) => `${i.name}·${i.location}·${i.status}`).join('、') || '暂无'}`
+}
+
+/**
+ * @param {SandboxQuestState} questState
+ */
+function buildSandboxQuestContext(questState) {
+  const activeQuests = (questState?.quests ?? []).filter((q) => q.status === 'active')
+  if (activeQuests.length === 0) return ''
+  const body = activeQuests
+    .map(
+      (q) =>
+        `[${q.category === 'main' ? '主线' : '支线'}] ${q.title}：${q.description}
+   目标：${q.objectives.map((o) => `${o.completed ? '✓' : '○'} ${o.description}`).join('、')}
+   奖励：${q.reward}`,
+    )
+    .join('\n')
+  return `【进行中任务——保持任务逻辑一致】
+${body}`
+}
+
+/**
+ * @param {SandboxNpcMemoryGraph} relevantMemoryGraph
+ */
+function buildSandboxMemoryContext(relevantMemoryGraph) {
+  const graph = relevantMemoryGraph ?? { nodes: [], edges: [] }
+  if (graph.nodes.length === 0) return ''
+
+  const body = graph.nodes
+    .map((node) => {
+      const recentMemories = node.memoriesOfPlayer.slice(-5)
+      const currentAttitude = node.attitudeHistory[node.attitudeHistory.length - 1]
+      const relations = graph.edges
+        .filter((e) => e.from === node.id || e.to === node.id)
+        .map((e) => {
+          const otherId = e.from === node.id ? e.to : e.from
+          const otherNode = graph.nodes.find((n) => n.id === otherId)
+          return otherNode ? `与${otherNode.name}：${e.relationship}` : null
+        })
+        .filter(Boolean)
+
+      return `${node.name}：
+  当前态度：${currentAttitude?.attitude || '未知'}
+  对玩家的记忆：${recentMemories.map((m) => `第${m.turn}轮-${m.content}`).join('；') || '无'}
+  NPC关系：${relations.join('、') || '无'}`
+    })
+    .join('\n')
+
+  return `【NPC记忆与关系——按需参考】
+${body}`
+}
+
+function buildSandboxNpcContext(relevantNpcs) {
+  if (!Array.isArray(relevantNpcs) || relevantNpcs.length === 0) return ''
+  const body = relevantNpcs
+    .map(
+      (npc) =>
+        `${npc.name}：${npc.identity}。与玩家关系：${npc.relationship}。当前状态：${npc.status}`,
+    )
+    .join('\n')
+  return `【NPC档案——本轮相关人物】
+${body}`
+}
+
+/**
  * @param {SandboxCharacter} character
  * @param {SandboxWorld} world
  * @param {SandboxArchivedEventEntry[]} [archivedEvents]
+ * @param {SandboxNpcEntry[]} [relevantNpcs]
+ * @param {SandboxCompanion[]} [companions]
+ * @param {SandboxFactEntry[]} [activeFacts]
+ * @param {SandboxTimelineEvent[]} [recentEvents]
+ * @param {SandboxWorldState} [worldState]
+ * @param {SandboxQuestState} [questState]
+ * @param {SandboxNpcMemoryGraph} [relevantMemoryGraph]
  */
-export function buildSandboxGmPrompt(character, world, archivedEvents = []) {
-  const skillLines = SANDBOX_SKILL_NAMES.map(
-    (name) => `${name}：${character.skills[name] ?? 5}`,
-  ).join('、')
+export function buildSandboxGmPrompt(
+  character,
+  world,
+  archivedEvents = [],
+  relevantNpcs = [],
+  companions = [],
+  activeFacts = [],
+  recentEvents = [],
+  worldState = { locations: [], factions: [], environment: [], keyItems: [] },
+  questState = { quests: [] },
+  relevantMemoryGraph = { nodes: [], edges: [] },
+) {
   const items =
     character.items.length > 0 ? character.items.join('、') : '无'
 
+  const characterContext = `【主角档案——始终参考，不得遗忘】
+姓名：${character.name}
+性别：${character.gender}
+背景：${character.background}
+技能：战斗${character.skills.战斗 ?? 5} 交涉${character.skills.交涉 ?? 5} 感知${character.skills.感知 ?? 5} 潜行${character.skills.潜行 ?? 5} 学识${character.skills.学识 ?? 5} 意志${character.skills.意志 ?? 5} 体魄${character.skills.体魄 ?? 5}
+HP：${character.hp}/${character.maxHp} MP：${character.mp}/${character.maxMp}
+物品：${items}
+`
+
   const worldDetail = SANDBOX_WORLD_DETAILS[world.id]
   const worldDetailPrompt = worldDetail ? buildWorldDetailPrompt(worldDetail) : ''
+  const npcContext = buildSandboxNpcContext(relevantNpcs)
+  const companionContext = buildSandboxCompanionContext(companions)
+  const factContext = buildSandboxFactContext(activeFacts)
+  const timelineContext = buildSandboxTimelineContext(recentEvents)
+  const worldStateContext = buildSandboxWorldStateContext(worldState)
+  const questContext = buildSandboxQuestContext(questState)
+  const memoryContext = buildSandboxMemoryContext(relevantMemoryGraph)
 
   const base = `【身份】
 你是沙盒跑团模式的守密人（GM / KP）。叙事风格须与当前世界观一致，语气沉浸、连贯。
 本局世界观：${world.name}（${world.subtitle}）
-${world.flavor}
 ${worldDetailPrompt}
+${npcContext ? `${npcContext}\n` : ''}${companionContext ? `${companionContext}\n` : ''}
 【世界观铁律】
 你必须严格在上述世界观边界内进行叙事。以下行为是被明确禁止的：
 - 引入克苏鲁神话元素、不可名状存在、宇宙级恐惧
@@ -77,13 +235,7 @@ ${worldDetailPrompt}
 
 每一轮叙事前，先确认：这个内容符合当前世界观的基调吗？不符合则重新构思。
 
-【主角设定】（由玩家创建，勿擅自改写姓名与性别）
-姓名：${character.name}
-性别：${character.gender}
-背景：${character.background}
-技能：${skillLines}
-当前：HP ${character.hp}/${character.maxHp}，MP ${character.mp}/${character.maxMp}
-物品：${items}
+【主角设定】以顶部【主角档案】为准，勿擅自改写姓名、性别与背景。
 
 【世界观边界】
 不得引入上述世界观范围外的元素（例如在古代东方出现智能手机，在奇幻世界出现企业财团等）。
@@ -105,6 +257,20 @@ ${worldDetailPrompt}
 ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
 物品：无
 （有物品时写「物品：A、B、C」，无物品写「物品：无」）
+伙伴状态（须遵守）：
+- 当前 active 伙伴最多 2 人；已满时叙事中体现无法再招募，且不要输出第三个 [新伙伴:…]
+- 每位 active 伙伴每轮必须在【当前状态】中输出一行
+招募新伙伴时追加：
+[新伙伴:姓名] HP x/y MP x/y
+技能：战斗N 交涉N 感知N 潜行N 学识N 意志N 体魄N
+已有伙伴正常更新：
+[伙伴:姓名] HP x/y MP x/y
+伙伴死亡或离队：
+[伙伴:姓名] 已死亡
+[伙伴:姓名] 已离队
+伙伴规范：
+- 伙伴技能 5~80，符合背景；伙伴 HP = 10 + floor(体魄/10)，MP = 10 + floor(学识/10)（x/y 须与技能一致）
+- 伙伴参与行动时，在【主角行为】或【他人行为】中体现其行动与检定后果
 - 「【你可以：】」：列出 2~4 个主角可采取的行动；勿问「要不要检定」。
 
 违反格式规定的回复视为无效。不得在格式之外添加任何额外内容。
@@ -121,7 +287,10 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
 【投骰】
 当对话中出现 [ROLL_RESULT:技能名:数值:判定] 后，再根据骰点继续写后果。判定为：大成功、成功、失败、大失败。`
   const archiveCtx = buildSandboxArchivedEventsContext(archivedEvents)
-  return archiveCtx ? `${base}\n\n${archiveCtx}` : base
+  const body = archiveCtx ? `${base}\n\n${archiveCtx}` : base
+  return `${characterContext}
+${world.flavor}
+${factContext ? `${factContext}\n` : ''}${timelineContext ? `${timelineContext}\n` : ''}${worldStateContext ? `${worldStateContext}\n` : ''}${questContext ? `${questContext}\n` : ''}${memoryContext ? `${memoryContext}\n` : ''}${body}`
 }
 
 

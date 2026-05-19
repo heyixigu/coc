@@ -1,4 +1,15 @@
 import { postChatNonStream } from '../deepseek.js'
+import {
+  clearEventTimeline,
+  formatEventTimelineText,
+  formatNpcMemoryGraphText,
+  formatQuestStateText,
+  formatWorldStateText,
+  loadEventTimeline,
+  loadNpcMemoryGraph,
+  loadQuestState,
+  loadWorldState,
+} from './sandboxStorage.js'
 
 /**
  * @typedef {import('./sandboxStorage.js').SandboxChatMessage} SandboxChatMessage
@@ -9,8 +20,31 @@ export const SANDBOX_ARCHIVE_CMD = '事件结束，封档'
 
 /**
  * @param {number} eventIndex
+ * @param {string} timelineText
+ * @param {string} worldStateText
+ * @param {string} questText
+ * @param {string} memoryText
  */
-export function buildSandboxArchiveSystemPrompt(eventIndex) {
+export function buildSandboxArchiveSystemPrompt(
+  eventIndex,
+  timelineText = '',
+  worldStateText = '',
+  questText = '',
+  memoryText = '',
+) {
+  const timelineBlock = timelineText.trim()
+    ? `\n\n本次事件时间线（封档参考）：\n${timelineText}`
+    : ''
+  const worldStateBlock = worldStateText.trim()
+    ? `\n\n当前世界状态快照（封档参考）：\n${worldStateText}`
+    : ''
+  const questBlock = questText.trim()
+    ? `\n\n当前任务状态快照（封档参考）：\n${questText}`
+    : ''
+  const memoryBlock = memoryText.trim()
+    ? `\n\nNPC记忆与关系（封档参考）：\n${memoryText}`
+    : ''
+
   return `你是一位跑团记录者，请根据以下对话内容，生成一份结构化的事件封档总结。
 
 严格按照以下格式输出，不得添加任何额外内容：
@@ -21,7 +55,7 @@ NPC变化：（新认识的NPC、关系变化、NPC状态变化，无则写"无"
 物品变化：（获得或失去的物品，无则写"无"）
 状态：（角色当前HP/MP及重要状态，参考最后一次【当前状态】段）
 守密人评语：（以守密人视角对本次事件的点评，100字上下，可含对玩家选择的评价）
-【封档】`
+【封档】${timelineBlock}${worldStateBlock}${questBlock}${memoryBlock}`
 }
 
 /**
@@ -53,6 +87,7 @@ export function formatSandboxArchiveDialogue(slice) {
 
 /**
  * @param {object} opts
+ * @param {number} [opts.slotIndex] 1-based，封档后清空时间线（世界状态保留）
  */
 export async function runSandboxArchiveEvent({
   apiKey,
@@ -64,18 +99,49 @@ export async function runSandboxArchiveEvent({
   gmTs,
   setMessages,
   onArchiveComplete,
+  slotIndex,
 }) {
   const key = (apiKey || '').trim()
   if (!key) return false
 
   const slice = getSandboxArchiveMessageSlice(messages, archivedEvents)
-  const dialogue = formatSandboxArchiveDialogue([...slice, userMsg])
+  const forDialogue = slice.some((m) => m.id === userMsg.id) ? slice : [...slice, userMsg]
+  const dialogue = formatSandboxArchiveDialogue(forDialogue)
   if (!dialogue.trim()) return false
+
+  const timelineText =
+    slotIndex != null && Number.isFinite(slotIndex)
+      ? formatEventTimelineText(loadEventTimeline(slotIndex).events)
+      : '（暂无记录）'
+
+  const worldStateText =
+    slotIndex != null && Number.isFinite(slotIndex)
+      ? formatWorldStateText(loadWorldState(slotIndex))
+      : '（暂无记录）'
+
+  const questText =
+    slotIndex != null && Number.isFinite(slotIndex)
+      ? formatQuestStateText(loadQuestState(slotIndex))
+      : '（暂无记录）'
+
+  const memoryText =
+    slotIndex != null && Number.isFinite(slotIndex)
+      ? formatNpcMemoryGraphText(loadNpcMemoryGraph(slotIndex))
+      : ''
 
   const raw = await postChatNonStream({
     apiKey: key,
     messages: [
-      { role: 'system', content: buildSandboxArchiveSystemPrompt(eventIndex) },
+      {
+        role: 'system',
+        content: buildSandboxArchiveSystemPrompt(
+          eventIndex,
+          timelineText,
+          worldStateText,
+          questText,
+          memoryText,
+        ),
+      },
       { role: 'user', content: dialogue },
     ],
   })
@@ -105,6 +171,11 @@ export async function runSandboxArchiveEvent({
     ...archivedEvents,
     { index: eventIndex, summary, archivedAt, endMessageId },
   ]
+
+  if (slotIndex != null && Number.isFinite(slotIndex)) {
+    clearEventTimeline(slotIndex)
+  }
+
   onArchiveComplete({
     archivedEvents: nextArchived,
     turnSummaries: [],

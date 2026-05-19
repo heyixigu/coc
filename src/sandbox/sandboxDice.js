@@ -18,12 +18,12 @@ export function rollSandboxD100() {
 }
 
 /**
- * @typedef {{ skill: string, value: number }} SkillCheck
- * @typedef {{ skillName: string, value: number, outcome: import('../cocJudge.js').D100Outcome | null, judgeText: string, pity?: boolean }} RollOutcome
+ * @typedef {{ skill: string, value: number, rollLabel?: string, diceLogLabel?: string }} SandboxRollCheck
+ * @typedef {{ skillName: string, value: number, outcome: import('../cocJudge.js').D100Outcome | null, judgeText: string, pity?: boolean, actorLabel?: string }} RollOutcome
  */
 
 /**
- * @param {SkillCheck[]} skills
+ * @param {SandboxRollCheck[]} skills
  * @param {number} consecutiveFails
  * @returns {{ lines: string[], outcomes: RollOutcome[], consecutiveFails: number }}
  */
@@ -32,7 +32,7 @@ export function resolveSandboxSkillChecks(skills, consecutiveFails = 0) {
   const outcomes = []
   let fails = Math.max(0, Number(consecutiveFails) || 0)
 
-  for (const { skill, value } of skills) {
+  for (const { skill, value, rollLabel, diceLogLabel } of skills) {
     const skillVal = Math.min(100, Math.max(1, Math.trunc(value)))
     let roll
     let outcome
@@ -58,8 +58,17 @@ export function resolveSandboxSkillChecks(skills, consecutiveFails = 0) {
 
     const baseLabel = outcome ? d100OutcomeLabel(outcome) : '失败'
     const judgeText = pity ? `${baseLabel}（${PITY_TAG}）` : baseLabel
-    lines.push(`[ROLL_RESULT:${skill}:${roll}:${judgeText}]`)
-    outcomes.push({ skillName: skill, value: roll, outcome, judgeText, pity })
+    const resultKey = rollLabel || skill
+    const logLabel = diceLogLabel || (rollLabel ? rollLabel : skill)
+    lines.push(`[ROLL_RESULT:${resultKey}:${roll}:${judgeText}]`)
+    outcomes.push({
+      skillName: logLabel,
+      value: roll,
+      outcome,
+      judgeText,
+      pity,
+      actorLabel: logLabel,
+    })
   }
 
   return { lines, outcomes, consecutiveFails: fails }
