@@ -16,6 +16,7 @@ import { runSandboxRollingSummary } from './sandboxRollingSummary.js'
 import { runSandboxTurnSummary } from './sandboxTurnSummary.js'
 import { runSandboxTypewriter } from './sandboxTypewriter.js'
 import TimelineOverlay from './components/TimelineOverlay.jsx'
+import SandboxStatCard from './components/SandboxStatCard'
 import { SandboxLeftPanelTabs, SandboxRightPanelTabs } from './components/SandboxSidePanels.jsx'
 import {
   defaultPlayerInventory,

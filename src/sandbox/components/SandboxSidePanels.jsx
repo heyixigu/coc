@@ -57,28 +57,7 @@ export function SandboxLeftPanelTabs({
 
       {leftTab === 'player' ? (
         <div className="sandbox-tab-content left-tab-content">
-          <div className="info-section">
-            <div className="section-title">{labels.basics}</div>
-            <p className="sandbox-char-line">
-              {character.name} ? {character.gender || labels.otherGender}
-            </p>
-            {statCard}
-            {character.background ? (
-              <p className="background-text muted small">{character.background}</p>
-            ) : null}
-          </div>
-
-          <div className="info-section">
-            <div className="section-title">{labels.skills}</div>
-            <ul className="sandbox-skill-readonly">
-              {SANDBOX_SKILL_NAMES.map((skill) => (
-                <li key={skill} className="skill-row">
-                  <span>{skill}</span>
-                  <span>{safeSkillValue(character, skill)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {statCard}
 
           <InventorySection
             title={labels.equipped}
