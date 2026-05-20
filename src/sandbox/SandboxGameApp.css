@@ -284,6 +284,62 @@ section.sandbox-app-root {
   line-height: 1.4;
 }
 
+.world-env,
+.world-economy {
+  color: var(--ink);
+}
+
+.world-economy .market-note {
+  display: block;
+  margin-top: 0.2rem;
+  color: #c0a060;
+  font-size: 0.72rem;
+}
+
+.location-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(120, 90, 70, 0.15);
+}
+
+.location-detail-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.loc-blocked {
+  font-size: 0.68rem;
+  color: #c07070;
+  border: 1px solid rgba(192, 112, 112, 0.45);
+  padding: 0 0.25rem;
+  border-radius: 2px;
+}
+
+.loc-danger {
+  font-size: 0.68rem;
+  color: #c0a060;
+  letter-spacing: 0.05em;
+}
+
+.loc-control {
+  font-size: 0.68rem;
+  color: rgba(180, 168, 145, 0.95);
+}
+
+.loc-status,
+.loc-access-note {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
+
+.loc-access-note {
+  color: #c07070;
+}
+
 .quest-block {
   margin-bottom: 0.5rem;
 }

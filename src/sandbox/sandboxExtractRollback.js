@@ -63,8 +63,8 @@ function rollbackWorldState(slotIndex, turn) {
   saveWorldState(slotIndex, {
     locations: drop(ws.locations),
     factions: drop(ws.factions),
-    environment: drop(ws.environment),
-    keyItems: drop(ws.keyItems),
+    environment: ws.environment,
+    economy: ws.economy,
   })
 }
 

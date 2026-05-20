@@ -13,7 +13,7 @@ import { extractAllStateUpdates } from './sandboxFactExtractor.js'
 import { filterRelevantMemoryGraph, matchRelevantNpcs } from './sandboxNpcMatcher.js'
 import {
   getActiveFacts,
-  loadEventTimeline,
+  getInjectableTimeline,
   loadNpcArchive,
   loadNpcMemoryGraph,
   loadQuestState,
@@ -200,13 +200,16 @@ export async function runSandboxPlayerTurn({
   const activeFacts =
     slotIndex != null && Number.isFinite(slotIndex) ? getActiveFacts(slotIndex) : []
   const recentEvents =
-    slotIndex != null && Number.isFinite(slotIndex)
-      ? loadEventTimeline(slotIndex).events.slice(-10)
-      : []
+    slotIndex != null && Number.isFinite(slotIndex) ? getInjectableTimeline(slotIndex) : []
   const worldState =
     slotIndex != null && Number.isFinite(slotIndex)
       ? loadWorldState(slotIndex)
-      : { locations: [], factions: [], environment: [], keyItems: [] }
+      : {
+          locations: [],
+          factions: [],
+          environment: { weather: '晴', timeOfDay: '正午', season: '春', dayCount: 1 },
+          economy: { priceLevel: 3, currency: '金币', marketNote: '' },
+        }
   const questState =
     slotIndex != null && Number.isFinite(slotIndex)
       ? loadQuestState(slotIndex)

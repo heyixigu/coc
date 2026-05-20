@@ -79,14 +79,24 @@ export function mergeNpcArchive(archive, extracted) {
         status: item.status || existing.status,
         ...(item.identity ? { identity: item.identity } : {}),
         updatedAt: now,
+        appearance: existing.appearance ?? '',
+        personality: existing.personality ?? '',
+        secret: existing.secret ?? '',
+        relationStrength: existing.relationStrength ?? 3,
+        isDead: existing.isDead === true,
       }
     } else {
       npcs.push({
         id: `npc_${Date.now()}_${Math.random().toString(16).slice(2)}`,
         name,
         identity: item.identity || '',
+        appearance: '',
+        personality: '',
+        secret: '',
         relationship: item.relationship || '',
+        relationStrength: 3,
         status: item.status || '',
+        isDead: false,
         updatedAt: now,
       })
     }

@@ -608,7 +608,7 @@ export default function SandboxGameApp({
 
   const handleFeedback = useCallback(
     (msgId, kind) => {
-      if (loading || gmUiPhase || mapNamingLocked) return
+      if (loading || gmUiPhase) return
       if (lastFeedback === kind && feedbackMsgId === msgId) {
         setLastFeedback(null)
         setFeedbackMsgId(null)
@@ -617,7 +617,7 @@ export default function SandboxGameApp({
         setFeedbackMsgId(msgId)
       }
     },
-    [loading, gmUiPhase, mapNamingLocked, lastFeedback, feedbackMsgId],
+    [loading, gmUiPhase, lastFeedback, feedbackMsgId],
   )
 
   const handleRegenerate = useCallback(async () => {

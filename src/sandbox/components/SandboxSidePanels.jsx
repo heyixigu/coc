@@ -176,12 +176,13 @@ export function SandboxRightPanelTabs({
   const mainActive = questState.quests.filter((q) => q.category === 'main' && q.status === 'active')
   const sideActive = questState.quests.filter((q) => q.category === 'side' && q.status === 'active')
 
-  const factionLines = worldState.factions.map(
-    (f) => `${f.name}????${f.attitudeToPlayer}?${f.currentStatus}?`,
-  )
-  const locationLines = worldState.locations.map((l) => `${l.name}?${l.status}?`)
-  const envLine =
-    worldState.environment.map((e) => `${e.type}?${e.value}`).join('?') || ''
+  const env = worldState.environment ?? {
+    weather: '晴',
+    timeOfDay: '正午',
+    season: '春',
+    dayCount: 1,
+  }
+  const eco = worldState.economy ?? { priceLevel: 3, currency: '金币', marketNote: '' }
 
   return (
     <div className="sandbox-right-panel sandbox-right-panel--tabs">
@@ -211,30 +212,51 @@ export function SandboxRightPanelTabs({
 
       {rightTab === 'world' ? (
         <div className="sandbox-tab-content right-tab-content">
+          <div className="section-title">{labels.environment}</div>
+          <div className="world-env world-item">
+            第{env.dayCount}天 · {env.season} · {env.timeOfDay} · {env.weather}
+          </div>
+
+          <div className="section-title">经济</div>
+          <div className="world-economy world-item">
+            物价 {'★'.repeat(eco.priceLevel)}
+            {'☆'.repeat(5 - eco.priceLevel)} | {eco.currency}
+            {eco.marketNote ? <span className="market-note"> {eco.marketNote}</span> : null}
+          </div>
+
           <div className="section-title">{labels.factions}</div>
-          {factionLines.length === 0 ? (
+          {worldState.factions.length === 0 ? (
             <div className="empty-hint">{labels.noFactions}</div>
           ) : (
-            factionLines.map((line, i) => (
-              <div key={i} className="world-item">
-                {line}
+            worldState.factions.map((f) => (
+              <div key={f.id} className="world-item">
+                {f.name} — {f.attitudeToPlayer} · {f.currentStatus}
               </div>
             ))
           )}
 
           <div className="section-title">{labels.locations}</div>
-          {locationLines.length === 0 ? (
+          {worldState.locations.length === 0 ? (
             <div className="empty-hint">{labels.noLocations}</div>
           ) : (
-            locationLines.map((line, i) => (
-              <div key={i} className="world-item">
-                {line}
+            worldState.locations.map((loc) => (
+              <div key={loc.id} className="location-detail world-item">
+                <span className="location-detail-name">{loc.name}</span>
+                {!loc.isAccessible ? <span className="loc-blocked">封锁</span> : null}
+                <span className="loc-danger">
+                  危险{'●'.repeat(loc.dangerLevel)}
+                  {'○'.repeat(5 - loc.dangerLevel)}
+                </span>
+                {loc.controlledBy ? (
+                  <span className="loc-control">{loc.controlledBy}</span>
+                ) : null}
+                {loc.status ? <span className="loc-status">{loc.status}</span> : null}
+                {!loc.isAccessible && loc.accessNote ? (
+                  <span className="loc-access-note">{loc.accessNote}</span>
+                ) : null}
               </div>
             ))
           )}
-
-          <div className="section-title">{labels.environment}</div>
-          <div className="world-item">{envLine || '?'}</div>
         </div>
       ) : null}
 

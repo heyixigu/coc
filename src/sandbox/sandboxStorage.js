@@ -20,8 +20,13 @@ const SANDBOX_SLOT_COUNT = 4
  *   id: string,
  *   name: string,
  *   identity: string,
+ *   appearance: string,
+ *   personality: string,
+ *   secret: string,
  *   relationship: string,
+ *   relationStrength: number,
  *   status: string,
+ *   isDead: boolean,
  *   updatedAt: string,
  * }} SandboxNpcEntry */
 /** @typedef {{ npcs: SandboxNpcEntry[] }} SandboxNpcArchive */
@@ -48,13 +53,18 @@ const SANDBOX_SLOT_COUNT = 4
  *   category: SandboxTimelineCategory,
  *   relatedNames: string[],
  *   consequence: string,
+ *   importance: number,
+ *   tags: string[],
  * }} SandboxTimelineEvent */
 /** @typedef {{ events: SandboxTimelineEvent[] }} SandboxEventTimeline */
-/** @typedef {'天气' | '时间' | '季节'} SandboxEnvironmentType */
 /** @typedef {{
  *   id: string,
  *   name: string,
  *   status: string,
+ *   dangerLevel: number,
+ *   controlledBy: string,
+ *   isAccessible: boolean,
+ *   accessNote: string,
  *   updatedAt: number,
  * }} SandboxWorldLocation */
 /** @typedef {{
@@ -65,22 +75,23 @@ const SANDBOX_SLOT_COUNT = 4
  *   updatedAt: number,
  * }} SandboxWorldFaction */
 /** @typedef {{
- *   type: SandboxEnvironmentType,
- *   value: string,
- *   updatedAt: number,
+ *   weather: string,
+ *   timeOfDay: string,
+ *   season: string,
+ *   dayCount: number,
  * }} SandboxWorldEnvironment */
+
 /** @typedef {{
- *   id: string,
- *   name: string,
- *   location: string,
- *   status: string,
- *   updatedAt: number,
- * }} SandboxWorldKeyItem */
+ *   priceLevel: number,
+ *   currency: string,
+ *   marketNote: string,
+ * }} SandboxWorldEconomy */
+
 /** @typedef {{
  *   locations: SandboxWorldLocation[],
  *   factions: SandboxWorldFaction[],
- *   environment: SandboxWorldEnvironment[],
- *   keyItems: SandboxWorldKeyItem[],
+ *   environment: SandboxWorldEnvironment,
+ *   economy: SandboxWorldEconomy,
  * }} SandboxWorldState */
 /** @typedef {'active' | 'completed' | 'failed'} SandboxQuestStatus */
 /** @typedef {'main' | 'side'} SandboxQuestCategory */
@@ -142,12 +153,20 @@ const SANDBOX_SLOT_COUNT = 4
  *   id: string,
  *   name: string,
  *   role: string,
+ *   background: string,
+ *   personality: string,
+ *   appearance: string,
  *   skills: SandboxSkills,
  *   hp: number,
  *   maxHp: number,
  *   mp: number,
  *   maxMp: number,
+ *   loyalty: number,
+ *   control: number,
+ *   goal: string,
  *   status: SandboxCompanionStatus,
+ *   isDead: boolean,
+ *   isDeparted: boolean,
  *   equipped: SandboxInventoryItem[],
  *   carried: SandboxInventoryItem[],
  * }} SandboxCompanion */
@@ -423,7 +442,51 @@ export function normalizeCompanionSkills(raw) {
 }
 
 /** @param {unknown} raw */
-function normalizeCompanions(raw) {
+function normalizeRelationStrength(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 3
+  return Math.min(5, Math.max(1, Math.round(raw)))
+}
+
+/** @param {unknown} raw */
+function normalizeCompanionLoyalty(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 3
+  return Math.min(5, Math.max(1, Math.round(raw)))
+}
+
+/** @param {unknown} raw */
+function normalizeCompanionControl(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0
+  return Math.min(5, Math.max(0, Math.round(raw)))
+}
+
+/** @param {SandboxCompanion} c */
+export function applyCompanionDefaults(c) {
+  const status = c.status ?? 'active'
+  const isDead = c.isDead === true || status === 'dead'
+  const isDeparted = c.isDeparted === true || status === 'left'
+  return {
+    background: '',
+    personality: '',
+    appearance: '',
+    loyalty: 3,
+    control: 0,
+    goal: '',
+    isDead: false,
+    isDeparted: false,
+    role: '',
+    equipped: [],
+    carried: [],
+    ...c,
+    isDead,
+    isDeparted,
+    status: isDead ? 'dead' : isDeparted ? 'left' : status === 'left' ? 'left' : status,
+    loyalty: normalizeCompanionLoyalty(c.loyalty),
+    control: normalizeCompanionControl(c.control),
+  }
+}
+
+/** @param {unknown} raw */
+export function normalizeCompanions(raw) {
   if (!Array.isArray(raw)) return []
   const out = []
   for (const e of raw) {
@@ -442,25 +505,36 @@ function normalizeCompanions(raw) {
     const mp = Number.parseInt(String(o.mp), 10)
     const maxMp = Number.parseInt(String(o.maxMp), 10)
     const statusRaw = typeof o.status === 'string' ? o.status : 'active'
-    const statusNorm =
-      statusRaw === 'departed' ? 'left' : statusRaw
+    const statusNorm = statusRaw === 'departed' ? 'left' : statusRaw
+    const isDead = o.isDead === true || statusNorm === 'dead'
+    const isDeparted = o.isDeparted === true || statusNorm === 'left'
     const status = /** @type {SandboxCompanionStatus} */ (
-      ['active', 'dead', 'left'].includes(statusNorm) ? statusNorm : 'active'
+      isDead ? 'dead' : isDeparted ? 'left' : ['active', 'dead', 'left'].includes(statusNorm) ? statusNorm : 'active'
     )
-    const role = typeof o.role === 'string' ? o.role.trim().slice(0, 120) : ''
-    out.push({
-      id,
-      name,
-      role,
-      skills,
-      maxHp: Number.isFinite(maxHp) ? Math.min(999, Math.max(1, maxHp)) : computed.maxHp,
-      maxMp: Number.isFinite(maxMp) ? Math.min(999, Math.max(1, maxMp)) : computed.maxMp,
-      hp: Number.isFinite(hp) ? Math.min(999, Math.max(0, hp)) : computed.hp,
-      mp: Number.isFinite(mp) ? Math.min(999, Math.max(0, mp)) : computed.mp,
-      status,
-      equipped: normalizeInventoryItems(o.equipped),
-      carried: normalizeInventoryItems(o.carried),
-    })
+    const role = typeof o.role === 'string' ? o.role.trim().slice(0, 50) : ''
+    out.push(
+      applyCompanionDefaults({
+        id,
+        name,
+        role,
+        background: typeof o.background === 'string' ? o.background.trim().slice(0, 300) : '',
+        personality: typeof o.personality === 'string' ? o.personality.trim().slice(0, 200) : '',
+        appearance: typeof o.appearance === 'string' ? o.appearance.trim().slice(0, 200) : '',
+        skills,
+        maxHp: Number.isFinite(maxHp) ? Math.min(999, Math.max(1, maxHp)) : computed.maxHp,
+        maxMp: Number.isFinite(maxMp) ? Math.min(999, Math.max(1, maxMp)) : computed.maxMp,
+        hp: Number.isFinite(hp) ? Math.min(999, Math.max(0, hp)) : computed.hp,
+        mp: Number.isFinite(mp) ? Math.min(999, Math.max(0, mp)) : computed.mp,
+        loyalty: normalizeCompanionLoyalty(o.loyalty),
+        control: normalizeCompanionControl(o.control),
+        goal: typeof o.goal === 'string' ? o.goal.trim().slice(0, 200) : '',
+        status,
+        isDead,
+        isDeparted,
+        equipped: normalizeInventoryItems(o.equipped),
+        carried: normalizeInventoryItems(o.carried),
+      }),
+    )
   }
   return out.slice(0, 32)
 }
@@ -517,12 +591,18 @@ function normalizeNpcArchive(raw) {
     const name = typeof n.name === 'string' ? n.name.trim().slice(0, 32) : ''
     if (!name) continue
     const id = typeof n.id === 'string' && n.id.trim() ? n.id.trim().slice(0, 64) : `npc_${Date.now()}`
+    const isDead = n.isDead === true
     npcs.push({
       id,
       name,
       identity: typeof n.identity === 'string' ? n.identity.trim().slice(0, 500) : '',
+      appearance: typeof n.appearance === 'string' ? n.appearance.trim().slice(0, 200) : '',
+      personality: typeof n.personality === 'string' ? n.personality.trim().slice(0, 200) : '',
+      secret: typeof n.secret === 'string' ? n.secret.trim().slice(0, 200) : '',
       relationship: typeof n.relationship === 'string' ? n.relationship.trim().slice(0, 500) : '',
+      relationStrength: normalizeRelationStrength(n.relationStrength),
       status: typeof n.status === 'string' ? n.status.trim().slice(0, 500) : '',
+      isDead,
       updatedAt: typeof n.updatedAt === 'string' ? n.updatedAt : new Date().toISOString(),
     })
   }
@@ -538,6 +618,43 @@ export function loadNpcArchive(slotIndex) {
 /** @param {number} slotIndex 1-based @param {SandboxNpcArchive} archive */
 export function saveNpcArchive(slotIndex, archive) {
   writeJsonKey(getSandboxSlotKey(slotIndex, NPC_ARCHIVE_FIELD), normalizeNpcArchive(archive))
+}
+
+/** @param {SandboxNpcEntry} n */
+export function applyNpcArchiveDefaults(n) {
+  return {
+    appearance: '',
+    personality: '',
+    secret: '',
+    relationStrength: 3,
+    isDead: false,
+    ...n,
+    isDead: n.isDead === true,
+    relationStrength: normalizeRelationStrength(n.relationStrength),
+  }
+}
+
+/** @param {SandboxNpcEntry} n */
+export function formatNpcArchiveInjectLine(n) {
+  const npc = applyNpcArchiveDefaults(n)
+  return `[${npc.id}] ${npc.name}${npc.isDead ? '【已死亡】' : ''}
+  身份：${npc.identity}
+  外貌：${npc.appearance || '未知'}
+  性格：${npc.personality || '未知'}
+  关系：${npc.relationship}（强度${npc.relationStrength}/5）
+  秘密：${npc.secret || '无'}
+  状态：${npc.status}`
+}
+
+/** @param {SandboxCompanion} c */
+export function formatCompanionArchiveInjectLine(c) {
+  const comp = applyCompanionDefaults(c)
+  const flag = comp.isDead ? '【已死亡】' : comp.isDeparted ? '【已离队】' : ''
+  return `${comp.name}${flag}
+  定位：${comp.role} | 忠诚度：${comp.loyalty}/5 | 控制度：${comp.control}/5
+  目标：${comp.goal || '无'}
+  背景：${comp.background || '未知'}
+  性格：${comp.personality || '未知'}`
 }
 
 /** @param {number} slotIndex 1-based */
@@ -659,6 +776,30 @@ export function defaultEventTimeline() {
 
 const TIMELINE_CATEGORIES = ['story', 'combat', 'npc', 'discovery', 'quest']
 
+const TIMELINE_VALID_TAGS = [
+  'death',
+  'boss',
+  'turning_point',
+  'first_meet',
+  'betrayal',
+  'discovery',
+  'quest_complete',
+]
+
+/** @param {unknown} rawTags */
+function normalizeTimelineTags(rawTags) {
+  if (!Array.isArray(rawTags)) return []
+  return rawTags
+    .filter((t) => typeof t === 'string' && TIMELINE_VALID_TAGS.includes(t))
+    .slice(0, 5)
+}
+
+/** @param {unknown} raw */
+function normalizeTimelineImportance(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 3
+  return Math.min(5, Math.max(1, Math.round(raw)))
+}
+
 /** @param {unknown} raw */
 function normalizeEventTimeline(raw) {
   if (!raw || typeof raw !== 'object') return defaultEventTimeline()
@@ -693,6 +834,8 @@ function normalizeEventTimeline(raw) {
       category,
       relatedNames: relatedNames.slice(0, 16),
       consequence,
+      importance: normalizeTimelineImportance(ev.importance),
+      tags: normalizeTimelineTags(ev.tags),
     })
   }
   events.sort((a, b) => a.turn - b.turn || a.id.localeCompare(b.id))
@@ -708,6 +851,38 @@ export function loadEventTimeline(slotIndex) {
 /** @param {number} slotIndex 1-based @param {SandboxEventTimeline} timeline */
 export function saveEventTimeline(slotIndex, timeline) {
   writeJsonKey(getSandboxSlotKey(slotIndex, EVENT_TIMELINE_FIELD), normalizeEventTimeline(timeline))
+}
+
+/**
+ * 获取注入 GM / 提取 prompt 用的时间线事件列表。
+ * importance>=4 永久保留，其余取最近 10 条，合并去重按 turn 排序，上限 20 条。
+ * @param {number} slotIndex 1-based
+ * @returns {SandboxTimelineEvent[]}
+ */
+export function getInjectableTimeline(slotIndex) {
+  const timeline = loadEventTimeline(slotIndex)
+  const all = timeline.events ?? []
+
+  const normalized = all.map((e) => ({
+    importance: 3,
+    tags: [],
+    ...e,
+  }))
+
+  const pinned = normalized.filter((e) => (e.importance ?? 3) >= 4)
+  const rest = normalized.filter((e) => (e.importance ?? 3) < 4).slice(-10)
+
+  const merged = [...pinned, ...rest]
+  const deduped = Array.from(new Map(merged.map((e) => [e.id, e])).values())
+  deduped.sort((a, b) => a.turn - b.turn)
+  return deduped.slice(-20)
+}
+
+/** @param {SandboxTimelineEvent} e */
+export function formatTimelineEventInjectLine(e) {
+  const imp = e.importance ?? 3
+  const tags = (e.tags ?? []).join(',') || '无'
+  return `[turn:${e.turn}] [importance:${imp}] [tags:${tags}] ${e.category}: ${e.title} - ${e.description}`
 }
 
 /** @param {number} slotIndex 1-based */
@@ -732,12 +907,139 @@ export function formatEventTimelineText(events) {
 
 const WORLD_STATE_FIELD = 'world-state'
 
-/** @returns {SandboxWorldState} */
-export function defaultWorldState() {
-  return { locations: [], factions: [], environment: [], keyItems: [] }
+/** @returns {SandboxWorldEnvironment} */
+export function defaultWorldEnvironment() {
+  return { weather: '晴', timeOfDay: '正午', season: '春', dayCount: 1 }
 }
 
-const ENV_TYPES = ['天气', '时间', '季节']
+/** @returns {SandboxWorldEconomy} */
+export function defaultWorldEconomy() {
+  return { priceLevel: 3, currency: '金币', marketNote: '' }
+}
+
+/** @returns {SandboxWorldState} */
+export function defaultWorldState() {
+  return {
+    locations: [],
+    factions: [],
+    environment: defaultWorldEnvironment(),
+    economy: defaultWorldEconomy(),
+  }
+}
+
+/** @param {unknown} raw */
+function normalizeDangerLevel(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 2
+  return Math.min(5, Math.max(1, Math.round(raw)))
+}
+
+/** @param {unknown} raw */
+function normalizePriceLevel(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 3
+  return Math.min(5, Math.max(1, Math.round(raw)))
+}
+
+/** @param {unknown} rawEnv */
+function normalizeEnvironmentObject(rawEnv) {
+  const o =
+    rawEnv && typeof rawEnv === 'object' && !Array.isArray(rawEnv)
+      ? /** @type {Record<string, unknown>} */ (rawEnv)
+      : {}
+  const day = Number(o.dayCount)
+  return {
+    weather:
+      typeof o.weather === 'string' && o.weather.trim()
+        ? o.weather.trim().slice(0, 50)
+        : '晴',
+    timeOfDay:
+      typeof o.timeOfDay === 'string' && o.timeOfDay.trim()
+        ? o.timeOfDay.trim().slice(0, 20)
+        : '正午',
+    season:
+      typeof o.season === 'string' && o.season.trim() ? o.season.trim().slice(0, 10) : '春',
+    dayCount: Number.isFinite(day) && day >= 1 ? Math.trunc(day) : 1,
+  }
+}
+
+/** @param {unknown} rawEco */
+function normalizeEconomyObject(rawEco) {
+  const o =
+    rawEco && typeof rawEco === 'object' && !Array.isArray(rawEco)
+      ? /** @type {Record<string, unknown>} */ (rawEco)
+      : {}
+  return {
+    priceLevel: normalizePriceLevel(o.priceLevel),
+    currency:
+      typeof o.currency === 'string' && o.currency.trim()
+        ? o.currency.trim().slice(0, 20)
+        : '金币',
+    marketNote:
+      typeof o.marketNote === 'string' ? o.marketNote.trim().slice(0, 100) : '',
+  }
+}
+
+/** @param {unknown} rawEnvArray */
+function migrateEnvironmentArray(rawEnvArray) {
+  const arr = Array.isArray(rawEnvArray) ? rawEnvArray : []
+  const findVal = (/** @type {string} */ type) => {
+    for (const e of arr) {
+      if (!e || typeof e !== 'object') continue
+      const item = /** @type {Record<string, unknown>} */ (e)
+      if (item.type === type && typeof item.value === 'string' && item.value.trim()) {
+        return item.value.trim().slice(0, 50)
+      }
+    }
+    return null
+  }
+  return {
+    weather: findVal('天气') ?? '晴',
+    timeOfDay: findVal('时间') ?? '正午',
+    season: findVal('季节') ?? '春',
+    dayCount: 1,
+  }
+}
+
+/** @param {SandboxWorldState} state */
+export function applyWorldStateDefaults(state) {
+  let environment = state.environment
+  if (Array.isArray(environment)) {
+    environment = migrateEnvironmentArray(environment)
+  }
+  environment = {
+    weather: '晴',
+    timeOfDay: '正午',
+    season: '春',
+    dayCount: 1,
+    ...normalizeEnvironmentObject(environment),
+  }
+
+  const economy = {
+    priceLevel: 3,
+    currency: '金币',
+    marketNote: '',
+    ...normalizeEconomyObject(state.economy),
+  }
+
+  const locations = (state.locations ?? []).map((loc) => ({
+    dangerLevel: 2,
+    controlledBy: '',
+    isAccessible: true,
+    accessNote: '',
+    ...loc,
+    dangerLevel: normalizeDangerLevel(loc.dangerLevel),
+    controlledBy:
+      typeof loc.controlledBy === 'string' ? loc.controlledBy.trim().slice(0, 50) : '',
+    isAccessible: loc.isAccessible !== false,
+    accessNote: typeof loc.accessNote === 'string' ? loc.accessNote.trim().slice(0, 100) : '',
+  }))
+
+  return {
+    locations,
+    factions: state.factions ?? [],
+    environment,
+    economy,
+  }
+}
 
 /** @param {unknown} raw */
 function normalizeWorldState(raw) {
@@ -745,8 +1047,6 @@ function normalizeWorldState(raw) {
   const o = /** @type {Record<string, unknown>} */ (raw)
   const locations = []
   const factions = []
-  const environment = []
-  const keyItems = []
 
   if (Array.isArray(o.locations)) {
     for (const e of o.locations) {
@@ -762,6 +1062,11 @@ function normalizeWorldState(raw) {
             : `loc_${Date.now()}`,
         name,
         status: typeof l.status === 'string' ? l.status.trim().slice(0, 500) : '',
+        dangerLevel: normalizeDangerLevel(l.dangerLevel),
+        controlledBy:
+          typeof l.controlledBy === 'string' ? l.controlledBy.trim().slice(0, 50) : '',
+        isAccessible: l.isAccessible !== false,
+        accessNote: typeof l.accessNote === 'string' ? l.accessNote.trim().slice(0, 100) : '',
         updatedAt: Number.isFinite(turn) && turn >= 0 ? Math.trunc(turn) : 0,
       })
     }
@@ -789,51 +1094,21 @@ function normalizeWorldState(raw) {
     }
   }
 
+  let environment = defaultWorldEnvironment()
   if (Array.isArray(o.environment)) {
-    for (const e of o.environment) {
-      if (!e || typeof e !== 'object') continue
-      const env = /** @type {Record<string, unknown>} */ (e)
-      const typeRaw = typeof env.type === 'string' ? env.type : '天气'
-      const type = /** @type {SandboxEnvironmentType} */ (
-        ENV_TYPES.includes(typeRaw) ? typeRaw : '天气'
-      )
-      const value = typeof env.value === 'string' ? env.value.trim().slice(0, 200) : ''
-      if (!value) continue
-      const turn = Number(env.updatedAt)
-      environment.push({
-        type,
-        value,
-        updatedAt: Number.isFinite(turn) && turn >= 0 ? Math.trunc(turn) : 0,
-      })
-    }
+    environment = migrateEnvironmentArray(o.environment)
+  } else if (o.environment != null && typeof o.environment === 'object') {
+    environment = normalizeEnvironmentObject(o.environment)
   }
 
-  if (Array.isArray(o.keyItems)) {
-    for (const e of o.keyItems) {
-      if (!e || typeof e !== 'object') continue
-      const i = /** @type {Record<string, unknown>} */ (e)
-      const name = typeof i.name === 'string' ? i.name.trim().slice(0, 32) : ''
-      if (!name) continue
-      const turn = Number(i.updatedAt)
-      keyItems.push({
-        id:
-          typeof i.id === 'string' && i.id.trim()
-            ? i.id.trim().slice(0, 64)
-            : `item_${Date.now()}`,
-        name,
-        location: typeof i.location === 'string' ? i.location.trim().slice(0, 200) : '',
-        status: typeof i.status === 'string' ? i.status.trim().slice(0, 500) : '',
-        updatedAt: Number.isFinite(turn) && turn >= 0 ? Math.trunc(turn) : 0,
-      })
-    }
-  }
+  const economy = normalizeEconomyObject(o.economy)
 
-  return {
+  return applyWorldStateDefaults({
     locations: locations.slice(0, 100),
     factions: factions.slice(0, 50),
-    environment: environment.slice(0, 10),
-    keyItems: keyItems.slice(0, 100),
-  }
+    environment,
+    economy,
+  })
 }
 
 /** @param {number} slotIndex 1-based @returns {SandboxWorldState} */
@@ -862,12 +1137,18 @@ export function formatWorldStateText(worldState) {
   const factions =
     ws.factions.map((f) => `${f.name}(${f.attitudeToPlayer}·${f.currentStatus})`).join('、') ||
     '暂无'
-  const locations = ws.locations.map((l) => `${l.name}(${l.status})`).join('、') || '暂无'
-  const environment =
-    ws.environment.map((e) => `${e.type}:${e.value}`).join('、') || '暂无'
-  const keyItems =
-    ws.keyItems.map((i) => `${i.name}·${i.location}·${i.status}`).join('、') || '暂无'
-  return `势力：${factions}\n地点：${locations}\n环境：${environment}\n关键物品：${keyItems}`
+  const locations =
+    ws.locations
+      .map(
+        (l) =>
+          `${l.name}${l.isAccessible ? '' : '[封锁]'} 危险${l.dangerLevel}/5 ${l.controlledBy || '无主'} ${l.status}`,
+      )
+      .join('、') || '暂无'
+  const env = ws.environment
+  const environment = `第${env.dayCount}天 ${env.season} ${env.timeOfDay} ${env.weather}`
+  const eco = ws.economy
+  const economy = `物价${eco.priceLevel}/5 ${eco.currency} ${eco.marketNote || '市场正常'}`
+  return `势力：${factions}\n地点：${locations}\n环境：${environment}\n经济：${economy}`
 }
 
 const QUEST_STATE_FIELD = 'quest-state'
@@ -1174,7 +1455,23 @@ function removeSandboxSlotKeys(slotIndex) {
   } catch {
     /* */
   }
+  for (const legacy of LEGACY_SANDBOX_STORAGE_SUFFIXES) {
+    try {
+      localStorage.removeItem(getSandboxSlotKey(slotIndex, legacy))
+    } catch {
+      /* */
+    }
+  }
 }
+
+/** 已移除的地图 / 世界记忆模块遗留 localStorage 字段 */
+const LEGACY_SANDBOX_STORAGE_SUFFIXES = [
+  'map-state',
+  'world-memory-global-events',
+  'world-memory-local-events',
+  'world-memory-locations',
+  'world-memory-location-profiles',
+]
 
 function isSandboxStateEmpty(gs) {
   return (

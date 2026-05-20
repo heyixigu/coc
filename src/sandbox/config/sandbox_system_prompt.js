@@ -63,15 +63,19 @@ ${body}`
  * @param {SandboxCompanion[]} companions
  */
 function buildSandboxCompanionContext(companions) {
-  const active = companions.filter((c) => c.status === 'active')
-  if (active.length === 0) return ''
-  const body = active
-    .map(
-      (c) =>
-        `${c.name}：HP ${c.hp}/${c.maxHp} MP ${c.mp}/${c.maxMp}
-   技能：战斗${c.skills.战斗 ?? 5} 交涉${c.skills.交涉 ?? 5} 感知${c.skills.感知 ?? 5} 潜行${c.skills.潜行 ?? 5} 学识${c.skills.学识 ?? 5} 意志${c.skills.意志 ?? 5} 体魄${c.skills.体魄 ?? 5}`,
-    )
-    .join('\n')
+  const list = companions.filter((c) => c.status === 'active' && !c.isDead && !c.isDeparted)
+  if (list.length === 0) return ''
+  const body = list
+    .map((c) => {
+      const flag = c.isDead ? '【已死亡】' : c.isDeparted ? '【已离队】' : ''
+      return `${c.name}${flag}：HP ${c.hp}/${c.maxHp} MP ${c.mp}/${c.maxMp}
+   定位：${c.role || '未知'} | 忠诚度：${c.loyalty ?? 3}/5 | 控制度：${c.control ?? 0}/5
+   目标：${c.goal || '无'}
+   背景：${c.background || '未知'}
+   性格：${c.personality || '未知'}
+   技能：战斗${c.skills.战斗 ?? 5} 交涉${c.skills.交涉 ?? 5} 感知${c.skills.感知 ?? 5} 潜行${c.skills.潜行 ?? 5} 学识${c.skills.学识 ?? 5} 意志${c.skills.意志 ?? 5} 体魄${c.skills.体魄 ?? 5}`
+    })
+    .join('\n\n')
   return `【当前伙伴】
 ${body}`
 }
@@ -96,14 +100,14 @@ ${body}`
  */
 function buildSandboxTimelineContext(recentEvents) {
   if (!Array.isArray(recentEvents) || recentEvents.length === 0) return ''
-  const slice = recentEvents.slice(-10)
-  const body = slice
-    .map(
-      (e) =>
-        `第${e.turn}轮 [${e.category}] ${e.title}：${e.description} → ${e.consequence || '无'}`,
-    )
+  const body = recentEvents
+    .map((e) => {
+      const imp = e.importance ?? 3
+      const tags = (e.tags ?? []).join(',') || '无'
+      return `[turn:${e.turn}] [importance:${imp}] [tags:${tags}] ${e.category}: ${e.title} - ${e.description} → ${e.consequence || '无'}`
+    })
     .join('\n')
-  return `【近期事件时间线——保持叙事因果一致】
+  return `【近期事件时间线——保持叙事因果一致；importance>=4 为永久保留】
 ${body}`
 }
 
@@ -111,12 +115,28 @@ ${body}`
  * @param {SandboxWorldState} worldState
  */
 function buildSandboxWorldStateContext(worldState) {
-  const ws = worldState ?? { locations: [], factions: [], environment: [], keyItems: [] }
+  const ws = worldState ?? {
+    locations: [],
+    factions: [],
+    environment: { weather: '晴', timeOfDay: '正午', season: '春', dayCount: 1 },
+    economy: { priceLevel: 3, currency: '金币', marketNote: '' },
+  }
+  const env = ws.environment ?? { weather: '晴', timeOfDay: '正午', season: '春', dayCount: 1 }
+  const eco = ws.economy ?? { priceLevel: 3, currency: '金币', marketNote: '' }
+  const envLine = `第${env.dayCount}天 · ${env.season} · ${env.timeOfDay} · ${env.weather}`
+  const ecoLine = `物价 ${'★'.repeat(eco.priceLevel)}${'☆'.repeat(5 - eco.priceLevel)} | ${eco.currency}${eco.marketNote ? ` · ${eco.marketNote}` : ''}`
+  const locLines =
+    ws.locations
+      .map(
+        (l) =>
+          `${l.name}${l.isAccessible ? '' : '【封锁】'} 危险${l.dangerLevel}/5 归属:${l.controlledBy || '无主'} ${l.status}`,
+      )
+      .join('、') || '暂无'
   return `【当前世界状态——全量参考】
 ⚔️ 势力：${ws.factions.map((f) => `${f.name}(对玩家${f.attitudeToPlayer}·${f.currentStatus})`).join('、') || '暂无'}
-📍 地点：${ws.locations.map((l) => `${l.name}(${l.status})`).join('、') || '暂无'}
-🌤️ 环境：${ws.environment.map((e) => `${e.type}:${e.value}`).join('、') || '暂无'}
-📦 关键物品：${ws.keyItems.map((i) => `${i.name}·${i.location}·${i.status}`).join('、') || '暂无'}`
+🌤️ 环境：${envLine}
+💰 经济：${ecoLine}
+📍 地点：${locLines}`
 }
 
 /**
@@ -171,12 +191,25 @@ ${body}`
 function buildSandboxNpcContext(relevantNpcs) {
   if (!Array.isArray(relevantNpcs) || relevantNpcs.length === 0) return ''
   const body = relevantNpcs
-    .map(
-      (npc) =>
-        `${npc.name}：${npc.identity}。与玩家关系：${npc.relationship}。当前状态：${npc.status}`,
-    )
-    .join('\n')
-  return `【NPC档案——本轮相关人物】
+    .map((npc) => {
+      const n = {
+        appearance: '',
+        personality: '',
+        secret: '',
+        relationStrength: 3,
+        isDead: false,
+        ...npc,
+      }
+      return `[${n.id}] ${n.name}${n.isDead ? '【已死亡】' : ''}
+  身份：${n.identity}
+  外貌：${n.appearance || '未知'}
+  性格：${n.personality || '未知'}
+  关系：${n.relationship}（强度${n.relationStrength ?? 3}/5）
+  秘密：${n.secret || '无'}
+  状态：${n.status}`
+    })
+    .join('\n\n')
+  return `【NPC档案——本轮相关人物；已死亡者不可复活】
 ${body}`
 }
 
@@ -201,7 +234,12 @@ export function buildSandboxGmPrompt(
   companions = [],
   activeFacts = [],
   recentEvents = [],
-  worldState = { locations: [], factions: [], environment: [], keyItems: [] },
+  worldState = {
+    locations: [],
+    factions: [],
+    environment: { weather: '晴', timeOfDay: '正午', season: '春', dayCount: 1 },
+    economy: { priceLevel: 3, currency: '金币', marketNote: '' },
+  },
   questState = { quests: [] },
   relevantMemoryGraph = { nodes: [], edges: [] },
   slotIndex = null,

@@ -65,12 +65,23 @@ function buildCompanion(name, hp, maxHp, mp, maxMp, skills) {
   return {
     id: `companion_${Date.now()}_${Math.random().toString(16).slice(2)}`,
     name: name.trim().slice(0, 32),
+    role: '',
+    background: '',
+    personality: '',
+    appearance: '',
     skills,
     hp,
     maxHp,
     mp,
     maxMp,
+    loyalty: 3,
+    control: 0,
+    goal: '',
     status: 'active',
+    isDead: false,
+    isDeparted: false,
+    equipped: [],
+    carried: [],
   }
 }
 
@@ -109,7 +120,13 @@ export function parseSandboxGmStatus(gmText, currentCompanions = [], playerName 
     const label = statusMatch[2]
     const existing = findCompanionByName(companions, name)
     if (!existing) continue
-    existing.status = /** @type {SandboxCompanionStatus} */ (label === '已死亡' ? 'dead' : 'left')
+    if (label === '已死亡') {
+      existing.isDead = true
+      existing.status = 'dead'
+    } else {
+      existing.isDeparted = true
+      existing.status = 'left'
+    }
   }
 
   const companionRegex = /\[伙伴:(.+?)\]\s*HP\s*(\d+)\s*\/\s*(\d+)\s*MP\s*(\d+)\s*\/\s*(\d+)/g
@@ -127,7 +144,7 @@ export function parseSandboxGmStatus(gmText, currentCompanions = [], playerName 
     existing.maxHp = Math.min(999, Math.max(1, maxHp))
     existing.mp = Math.min(999, Math.max(0, mp))
     existing.maxMp = Math.min(999, Math.max(1, maxMp))
-    if (existing.status === 'dead' || existing.status === 'left') {
+    if (!existing.isDead && !existing.isDeparted && existing.status !== 'dead' && existing.status !== 'left') {
       existing.status = 'active'
     }
   }
