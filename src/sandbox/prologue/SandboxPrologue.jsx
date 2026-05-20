@@ -9,21 +9,8 @@ import { runSandboxTypewriter } from '../sandboxTypewriter.js'
 import { computeHpMpFromSkills, loadSandboxSlot } from '../sandboxStorage.js'
 import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
 import ScreenBackButton from '../../screens/ScreenBackButton.jsx'
-import { generateGlobalEvents } from '../sandboxGlobalEventGenerator.js'
-import { saveGlobalEvents } from '../sandboxWorldMemory.js'
 import { finishSandboxPrologue } from './finishSandboxPrologue.js'
 import './SandboxPrologue.css'
-
-const EVENT_TYPES = [
-  { value: 'war', label: '战争' },
-  { value: 'disaster', label: '灾难' },
-  { value: 'discovery', label: '重大发现' },
-  { value: 'curse', label: '诅咒异变' },
-  { value: 'founding', label: '王朝建立' },
-  { value: 'other', label: '其他' },
-]
-
-const ERAS = ['远古', '百年前', '近代']
 
 const SKILL_TOTAL = 350
 const SKILL_MIN = 5
@@ -127,13 +114,7 @@ function defaultSkills() {
 export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavigateBack }) {
   const saved = useMemo(() => loadSandboxSlot(slotIndex), [slotIndex])
 
-  const [step, setStep] = useState(/** @type {1 | 2 | 2.5 | 3} */ (1))
-  const [worldHistoryMode, setWorldHistoryMode] = useState(/** @type {null | 'ai' | 'custom'} */ (null))
-  const [isGeneratingHistory, setIsGeneratingHistory] = useState(false)
-  const [historyGenText, setHistoryGenText] = useState('')
-  const [customEvents, setCustomEvents] = useState([
-    { name: '', type: 'war', era: '百年前', summary: '' },
-  ])
+  const [step, setStep] = useState(/** @type {1 | 2 | 3} */ (1))
   const [worldId, setWorldId] = useState(() => saved.world?.id ?? SANDBOX_WORLDS[0].id)
   const [name, setName] = useState(() => saved.character?.name ?? '')
   const [gender, setGender] = useState(
@@ -268,56 +249,6 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
     setError('')
     void generateOpening()
   }, [canStep3, generateOpening])
-
-  const handleAiWorldHistory = useCallback(async () => {
-    if (!selectedWorld || isGeneratingHistory) return
-
-    setWorldHistoryMode('ai')
-    setIsGeneratingHistory(true)
-    setHistoryGenText('AI正在构建世界历史...')
-
-    try {
-      const events = await generateGlobalEvents({
-        apiKey,
-        worldName: selectedWorld.name,
-        worldFlavor: selectedWorld.flavor,
-        races: selectedWorld.races ?? [],
-      })
-
-      if (events.length > 0) {
-        saveGlobalEvents(slotIndex, events)
-        setHistoryGenText(`已生成 ${events.length} 条世界历史`)
-      } else {
-        setHistoryGenText('历史构建完成')
-      }
-
-      await new Promise((r) => setTimeout(r, 800))
-      goStep3()
-    } catch (e) {
-      console.warn('骨架事件生成失败', e)
-      goStep3()
-    } finally {
-      setIsGeneratingHistory(false)
-      setHistoryGenText('')
-    }
-  }, [apiKey, goStep3, isGeneratingHistory, selectedWorld, slotIndex])
-
-  const confirmCustomHistory = useCallback(() => {
-    const formatted = customEvents
-      .filter((e) => e.name.trim() && e.summary.trim())
-      .map((e, i) => ({
-        id: `event_global_custom_${i}`,
-        name: e.name.trim(),
-        era: e.era,
-        type: e.type,
-        summary: e.summary.trim(),
-        affectedRaces: [],
-        affectedLocations: [],
-        promotedFrom: 'custom',
-      }))
-    saveGlobalEvents(slotIndex, formatted)
-    goStep3()
-  }, [customEvents, goStep3, slotIndex])
 
   const handleEnterGame = useCallback(() => {
     if (!selectedWorld || !openingText.trim() || !openingReady) return
@@ -495,154 +426,12 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                 type="button"
                 className="prologue-btn prologue-btn-primary"
                 disabled={!canStep3}
-                onClick={() => setStep(2.5)}
+                onClick={() => void goStep3()}
               >
                 {'\u4e0b\u4e00\u6b65'}
               </button>
             </section>
           </>
-        ) : null}
-
-        {step === 2.5 ? (
-          <div className="prologue-step sandbox-history-step">
-            <h2 className="sandbox-step-title">这个世界发生过什么？</h2>
-            <p className="prologue-hint sandbox-history-hint">
-              历史大事件将影响你探索到的每一片土地
-            </p>
-
-            {isGeneratingHistory ? (
-              <div className="history-generating" role="status" aria-live="polite">
-                <div className="history-gen-spinner">◆</div>
-                <div className="history-gen-text">{historyGenText}</div>
-              </div>
-            ) : null}
-
-            {!worldHistoryMode && !isGeneratingHistory ? (
-              <div className="history-mode-select">
-                <button
-                  type="button"
-                  className="mode-card"
-                  onClick={() => void handleAiWorldHistory()}
-                >
-                  <div className="mode-title">让AI决定</div>
-                  <div className="mode-desc">AI根据世界观自动生成历史背景</div>
-                </button>
-                <button
-                  type="button"
-                  className="mode-card"
-                  onClick={() => setWorldHistoryMode('custom')}
-                >
-                  <div className="mode-title">我来定义</div>
-                  <div className="mode-desc">自己写下改变世界的大事件（最多3条）</div>
-                </button>
-              </div>
-            ) : null}
-
-            {worldHistoryMode === 'custom' ? (
-              <div className="custom-events">
-                {customEvents.map((event, idx) => (
-                  <div key={idx} className="event-form">
-                    <div className="event-form-header">
-                      <span>事件 {idx + 1}</span>
-                      {customEvents.length > 1 ? (
-                        <button
-                          type="button"
-                          className="remove-event-btn"
-                          onClick={() =>
-                            setCustomEvents(customEvents.filter((_, i) => i !== idx))
-                          }
-                        >
-                          删除
-                        </button>
-                      ) : null}
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="事件名称"
-                      value={event.name}
-                      onChange={(e) => {
-                        const updated = [...customEvents]
-                        updated[idx] = { ...updated[idx], name: e.target.value }
-                        setCustomEvents(updated)
-                      }}
-                    />
-                    <select
-                      value={event.type}
-                      onChange={(e) => {
-                        const updated = [...customEvents]
-                        updated[idx] = { ...updated[idx], type: e.target.value }
-                        setCustomEvents(updated)
-                      }}
-                    >
-                      {EVENT_TYPES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={event.era}
-                      onChange={(e) => {
-                        const updated = [...customEvents]
-                        updated[idx] = { ...updated[idx], era: e.target.value }
-                        setCustomEvents(updated)
-                      }}
-                    >
-                      {ERAS.map((era) => (
-                        <option key={era} value={era}>
-                          {era}
-                        </option>
-                      ))}
-                    </select>
-                    <textarea
-                      placeholder="简述这个事件（一两句话）"
-                      value={event.summary}
-                      onChange={(e) => {
-                        const updated = [...customEvents]
-                        updated[idx] = { ...updated[idx], summary: e.target.value }
-                        setCustomEvents(updated)
-                      }}
-                    />
-                  </div>
-                ))}
-
-                {customEvents.length < 3 ? (
-                  <button
-                    type="button"
-                    className="add-event-btn"
-                    onClick={() =>
-                      setCustomEvents([
-                        ...customEvents,
-                        { name: '', type: 'war', era: '百年前', summary: '' },
-                      ])
-                    }
-                  >
-                    + 添加事件
-                  </button>
-                ) : null}
-
-                <section className="prologue-footer">
-                  <button type="button" className="prologue-btn" onClick={() => setStep(2)}>
-                    上一步
-                  </button>
-                  <button
-                    type="button"
-                    className="prologue-btn prologue-btn-primary"
-                    disabled={customEvents.some((e) => !e.name.trim() || !e.summary.trim())}
-                    onClick={confirmCustomHistory}
-                  >
-                    确认，开始冒险
-                  </button>
-                </section>
-              </div>
-            ) : (
-              <section className="prologue-footer">
-                <button type="button" className="prologue-btn" onClick={() => setStep(2)}>
-                  上一步
-                </button>
-              </section>
-            )}
-          </div>
         ) : null}
 
         {step === 3 ? (
@@ -667,7 +456,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                 className="prologue-btn"
                 disabled={openingLoading}
                 onClick={() => {
-                  setStep(2.5)
+                  setStep(2)
                   setOpeningReady(false)
                 }}
               >

@@ -1,6 +1,4 @@
 import { exportCocSlot, importCocSlot } from '../storage.js'
-import { clearMapState } from './map/mapStorage.js'
-import { clearWorldMemory } from './sandboxWorldMemory.js'
 import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
 
 const SANDBOX_SLOT_COUNT = 4
@@ -36,6 +34,9 @@ const SANDBOX_SLOT_COUNT = 4
  *   createdAt: number,
  *   updatedAt: number,
  *   supersededBy: string | null,
+ *   importance: number,
+ *   confidence: 'high' | 'medium' | 'low',
+ *   sourceTurn: number,
  * }} SandboxFactEntry */
 /** @typedef {{ facts: SandboxFactEntry[] }} SandboxFactDatabase */
 /** @typedef {'story' | 'combat' | 'npc' | 'discovery' | 'quest'} SandboxTimelineCategory */
@@ -586,6 +587,14 @@ function normalizeFactDatabase(raw) {
       typeof f.supersededBy === 'string' && f.supersededBy.trim()
         ? f.supersededBy.trim().slice(0, 64)
         : null
+    const impRaw = Number(f.importance)
+    const importance =
+      Number.isFinite(impRaw) && impRaw >= 1 && impRaw <= 5 ? Math.round(impRaw) : 3
+    const confRaw = f.confidence
+    const confidence =
+      confRaw === 'high' || confRaw === 'medium' || confRaw === 'low' ? confRaw : 'medium'
+    const stRaw = Number(f.sourceTurn)
+    const sourceTurn = Number.isFinite(stRaw) && stRaw >= 0 ? Math.trunc(stRaw) : 0
     facts.push({
       id,
       content,
@@ -594,6 +603,9 @@ function normalizeFactDatabase(raw) {
       createdAt: Number.isFinite(createdAt) && createdAt >= 0 ? Math.trunc(createdAt) : 0,
       updatedAt: Number.isFinite(updatedAt) && updatedAt >= 0 ? Math.trunc(updatedAt) : 0,
       supersededBy,
+      importance,
+      confidence,
+      sourceTurn,
     })
   }
   return { facts: facts.slice(0, 500) }
@@ -610,10 +622,23 @@ export function saveFactDatabase(slotIndex, database) {
   writeJsonKey(getSandboxSlotKey(slotIndex, FACT_DATABASE_FIELD), normalizeFactDatabase(database))
 }
 
-/** @param {number} slotIndex 1-based @returns {SandboxFactEntry[]} */
-export function getActiveFacts(slotIndex) {
+/**
+ * 获取有效事实列表，过滤低置信度和超期低权重事实，按重要性排序，上限50条
+ * @param {number} slotIndex
+ * @param {number} [currentTurn]
+ * @returns {SandboxFactEntry[]}
+ */
+export function getActiveFacts(slotIndex, currentTurn = 9999) {
   const db = loadFactDatabase(slotIndex)
-  return db.facts.filter((f) => f.supersededBy == null)
+  const active = db.facts.filter((f) => {
+    if (f.supersededBy) return false
+    if (f.confidence === 'low') return false
+    const age = currentTurn - (f.sourceTurn ?? 0)
+    if (age > 30 && (f.importance ?? 3) < 3) return false
+    return true
+  })
+  active.sort((a, b) => (b.importance ?? 3) - (a.importance ?? 3))
+  return active.slice(0, 50)
 }
 
 /** @param {number} slotIndex 1-based */
@@ -1149,8 +1174,6 @@ function removeSandboxSlotKeys(slotIndex) {
   } catch {
     /* */
   }
-  clearWorldMemory(slotIndex)
-  clearMapState(slotIndex)
 }
 
 function isSandboxStateEmpty(gs) {

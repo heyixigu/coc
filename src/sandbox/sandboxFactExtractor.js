@@ -43,6 +43,8 @@ import {
  *   content: string,
  *   category: SandboxFactCategory,
  *   relatedNames: string[],
+ *   importance: number,
+ *   confidence: 'high' | 'medium' | 'low',
  * }} FactExtractNew
  */
 
@@ -52,6 +54,8 @@ import {
  *   content: string,
  *   category: SandboxFactCategory,
  *   relatedNames: string[],
+ *   importance: number,
+ *   confidence: 'high' | 'medium' | 'low',
  * }} FactExtractUpdate
  */
 
@@ -301,6 +305,20 @@ function normalizeTimelineEvent(raw) {
   }
 }
 
+function normalizeExtractFactImportance(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 3
+  return Math.min(5, Math.max(1, Math.round(raw)))
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {'high' | 'medium' | 'low'}
+ */
+function normalizeExtractFactConfidence(raw) {
+  if (raw === 'high' || raw === 'low' || raw === 'medium') return raw
+  return 'medium'
+}
+
 /**
  * @param {string} raw
  * @returns {AllStateExtractResult | null}
@@ -322,10 +340,15 @@ function parseAllStateExtractJson(raw) {
         const f = /** @type {Record<string, unknown>} */ (item)
         const content = typeof f.content === 'string' ? f.content.trim().slice(0, 1000) : ''
         if (!content) continue
+        const importance = normalizeExtractFactImportance(f.importance)
+        const confidence = normalizeExtractFactConfidence(f.confidence)
+        if (importance <= 2 && confidence === 'low') continue
         newFacts.push({
           content,
           category: normalizeFactCategory(f.category),
           relatedNames: normalizeRelatedNames(f.relatedNames),
+          importance,
+          confidence,
         })
       }
     }
@@ -337,11 +360,16 @@ function parseAllStateExtractJson(raw) {
         const supersedes = typeof f.supersedes === 'string' ? f.supersedes.trim() : ''
         const content = typeof f.content === 'string' ? f.content.trim().slice(0, 1000) : ''
         if (!supersedes || !content) continue
+        const importance = normalizeExtractFactImportance(f.importance)
+        const confidence = normalizeExtractFactConfidence(f.confidence)
+        if (importance <= 2 && confidence === 'low') continue
         updatedFacts.push({
           supersedes: supersedes.slice(0, 64),
           content,
           category: normalizeFactCategory(f.category),
           relatedNames: normalizeRelatedNames(f.relatedNames),
+          importance,
+          confidence,
         })
       }
     }
@@ -588,6 +616,9 @@ function buildNewFactEntry(item, currentTurn) {
     createdAt: turn,
     updatedAt: turn,
     supersededBy: null,
+    importance: normalizeExtractFactImportance(item.importance),
+    confidence: normalizeExtractFactConfidence(item.confidence),
+    sourceTurn: turn,
   }
 }
 
@@ -606,6 +637,9 @@ function applyFactUpdate(facts, update, currentTurn) {
     createdAt: turn,
     updatedAt: turn,
     supersededBy: null,
+    importance: normalizeExtractFactImportance(update.importance),
+    confidence: normalizeExtractFactConfidence(update.confidence),
+    sourceTurn: turn,
   })
 }
 
@@ -626,8 +660,17 @@ export function mergeFactDatabase(facts, parsed, currentTurn) {
  */
 function updateFactDatabase(parsed, currentTurn, slotIndex) {
   if (parsed.newFacts.length === 0 && parsed.updatedFacts.length === 0) return false
-  const existing = loadFactDatabase(slotIndex)
-  const merged = mergeFactDatabase([...existing.facts], parsed, currentTurn)
+  const loaded = loadFactDatabase(slotIndex)
+  const db = {
+    ...loaded,
+    facts: loaded.facts.map((f) => ({
+      importance: 3,
+      confidence: 'medium',
+      sourceTurn: 0,
+      ...f,
+    })),
+  }
+  const merged = mergeFactDatabase([...db.facts], parsed, currentTurn)
   saveFactDatabase(slotIndex, merged)
   return true
 }
@@ -965,7 +1008,12 @@ function buildAllStateExtractPrompt(
 ) {
   const factLines =
     activeFacts.length > 0
-      ? activeFacts.map((f) => `[${f.id}] [${f.category}] ${f.content}`).join('\n')
+      ? activeFacts
+          .map(
+            (f) =>
+              `[${f.id}] ${f.category}(importance:${f.importance ?? 3}, confidence:${f.confidence ?? 'medium'}): ${f.content}`,
+          )
+          .join('\n')
       : '暂无'
 
   const npcLines =
@@ -1065,9 +1113,11 @@ ${gmReply}
 {
   "newFacts": [
     {
-      "content": "事实内容，细粒度",
+      "content": "事实内容，细粒度，不记录琐碎对话",
       "category": "world|npc|location|item|quest",
-      "relatedNames": ["相关名称"]
+      "relatedNames": ["相关名称"],
+      "importance": 3,
+      "confidence": "high|medium|low"
     }
   ],
   "updatedFacts": [
@@ -1075,7 +1125,9 @@ ${gmReply}
       "supersedes": "被替代的事实id",
       "content": "新事实内容",
       "category": "world|npc|location|item|quest",
-      "relatedNames": ["相关名称"]
+      "relatedNames": ["相关名称"],
+      "importance": 3,
+      "confidence": "high|medium|low"
     }
   ],
   "timelineEvent": {
@@ -1172,6 +1224,9 @@ ${gmReply}
 }
 
 注意：
+- importance 1~5：5=改变剧情走向的核心事实，4=重要NPC/地点/物品信息，3=普通背景信息，2=次要细节，1=几乎无用的琐碎信息
+- confidence high=GM明确叙述，medium=可合理推断，low=不确定或玩家猜测
+- importance<=2 且 confidence=low 的事实不要提取，直接忽略
 - timelineEvent 只在有关键事件时输出，否则为 null
 - 琐碎对话不记录为时间线事件，战斗/重要发现/关键NPC/任务推进才记录
 - npcUpdates 只包含本轮出现或状态变化的 NPC

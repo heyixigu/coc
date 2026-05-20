@@ -534,8 +534,7 @@ section.sandbox-app-root {
   grid-template-columns: 1fr auto;
 }
 
-.sandbox-timeline-btn,
-.sandbox-map-btn {
+.sandbox-timeline-btn {
   min-width: 2.25rem;
   padding-left: 0.5rem;
   padding-right: 0.5rem;
@@ -815,3 +814,4 @@ section.sandbox-app-root {
   color: var(--ink-muted);
   padding: 0.5rem 0;
 }
+

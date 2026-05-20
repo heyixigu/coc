@@ -4,7 +4,6 @@ import { IconDice, IconMenu } from '../components/MobileIcons.jsx'
 import { useIsMobile } from '../hooks/useIsMobile.js'
 import { useMobileGestures } from '../hooks/useMobileGestures.js'
 import { useVisualViewportOffset } from '../hooks/useVisualViewportOffset.js'
-import { getWorldRaces } from './config/sandbox_world_details.js'
 import { getWorldById } from './config/sandbox_worlds.js'
 import { SANDBOX_LOADING_PHRASES } from './config/sandbox_loading_phrases.js'
 import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
@@ -17,19 +16,6 @@ import { runSandboxRollingSummary } from './sandboxRollingSummary.js'
 import { runSandboxTurnSummary } from './sandboxTurnSummary.js'
 import { runSandboxTypewriter } from './sandboxTypewriter.js'
 import TimelineOverlay from './components/TimelineOverlay.jsx'
-import MapOverlay from './map/MapOverlay.jsx'
-import { exploreCell } from './map/generateMap'
-import { toMapWorldId } from './map/names'
-import {
-  continentCoordsFromMapState,
-  loadInitialContinentGrid,
-  loadMapState,
-  saveContinentProgress,
-} from './map/mapStorage.js'
-import MiniMap from './components/MiniMap.jsx'
-import { generateLocationProfile } from './sandboxLocationGenerator.js'
-import { getLocationById } from './sandboxWorldMemory.js'
-import { parseMoveFromReply, stripMoveMarker } from './sandboxMapMove.js'
 import SandboxStatCard from './components/SandboxStatCard'
 import { SandboxLeftPanelTabs, SandboxRightPanelTabs } from './components/SandboxSidePanels.jsx'
 import {
@@ -60,7 +46,6 @@ const T = {
   none: '\u65e0',
   narrative: '\u53d9\u4e8b',
   timeline: '\u4e8b\u4ef6\u65f6\u95f4\u7ebf',
-  worldMap: '\u4e16\u754c\u5730\u56fe',
   keeper: '\u5b88\u5bc6\u4eba',
   system: '[\u7cfb\u7edf]',
   judging: '\u6b63\u5728\u5224\u5b9a\u68c0\u5b9a\u5e76\u6295\u9ab0\u2026\u2026',
@@ -169,11 +154,6 @@ export default function SandboxGameApp({
     () => (initial.world ? getWorldById(initial.world.id) : null),
     [initial.world],
   )
-  const mapWorldId = useMemo(
-    () => toMapWorldId(worldFull?.id ?? initial.world?.id),
-    [worldFull?.id, initial.world?.id],
-  )
-
   const [character, setCharacter] = useState(() => initial.character)
   const [companions, setCompanions] = useState(() => initial.companions ?? [])
   const [playerInventory, setPlayerInventory] = useState(
@@ -207,19 +187,6 @@ export default function SandboxGameApp({
   const [eventIndex, setEventIndex] = useState(() => initial.eventIndex ?? 1)
   const [archiving, setArchiving] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
-  const [mapOpen, setMapOpen] = useState(false)
-  const [continentGrid, setContinentGrid] = useState(() =>
-    loadInitialContinentGrid(slotIndex, initial.world?.id),
-  )
-  const [currentCoords, setCurrentCoords] = useState(() =>
-    continentCoordsFromMapState(loadMapState(slotIndex)),
-  )
-  const prologueComplete = initial.prologueComplete ?? false
-  const [isExploring, setIsExploring] = useState(false)
-  const [exploringText, setExploringText] = useState('')
-  const isExploringRef = useRef(false)
-  const continentGridRef = useRef(continentGrid)
-  const currentCoordsRef = useRef(currentCoords)
   const [timelineEvents, setTimelineEvents] = useState(
     () => loadEventTimeline(slotIndex).events,
   )
@@ -326,82 +293,6 @@ export default function SandboxGameApp({
     refreshExtractedState()
   }, [bootKey, slotIndex, refreshExtractedState])
 
-  useEffect(() => {
-    const saved = loadMapState(slotIndex)
-    setContinentGrid(
-      saved?.continentGrid?.length
-        ? saved.continentGrid
-        : loadInitialContinentGrid(slotIndex, worldFull?.id ?? initial.world?.id),
-    )
-    setCurrentCoords(continentCoordsFromMapState(saved))
-  }, [bootKey, slotIndex, worldFull?.id, initial.world?.id])
-
-  continentGridRef.current = continentGrid
-  currentCoordsRef.current = currentCoords
-
-  const applyMove = useCallback(
-    async (/** @type {'north'|'south'|'east'|'west'} */ direction) => {
-      if (isExploringRef.current) return
-
-      const delta =
-        direction === 'north'
-          ? { x: 0, y: -1 }
-          : direction === 'south'
-            ? { x: 0, y: 1 }
-            : direction === 'east'
-              ? { x: 1, y: 0 }
-              : direction === 'west'
-                ? { x: -1, y: 0 }
-                : null
-      if (!delta) return
-
-      const prevCoords = currentCoordsRef.current
-      const prevGrid = continentGridRef.current
-      const newX = Math.max(0, Math.min(7, prevCoords.x + delta.x))
-      const newY = Math.max(0, Math.min(7, prevCoords.y + delta.y))
-      if (newX === prevCoords.x && newY === prevCoords.y) return
-
-      const targetCell = prevGrid[newY]?.[newX]
-      const isNewCell = Boolean(targetCell && !targetCell.explored)
-      const locationId = `${newX}-${newY}`
-
-      const newGrid = exploreCell(prevGrid, newX, newY, mapWorldId)
-      setContinentGrid(newGrid)
-      setCurrentCoords({ x: newX, y: newY })
-      saveContinentProgress(slotIndex, newGrid, { x: newX, y: newY })
-
-      if (!isNewCell || getLocationById(slotIndex, locationId)) return
-
-      isExploringRef.current = true
-      setIsExploring(true)
-      setExploringText('正在探索...')
-
-      try {
-        const cell = newGrid[newY][newX]
-        const worldId = worldFull?.id
-        await generateLocationProfile({
-          apiKey: apiKey.trim(),
-          slotIndex,
-          worldName: worldFull?.name ?? '',
-          locationId,
-          locationName: cell.name,
-          locationType: cell.type,
-          coords: { x: newX, y: newY },
-          races: worldId ? getWorldRaces(worldId) : [],
-        })
-        setExploringText('探索完成')
-        await new Promise((r) => setTimeout(r, 600))
-      } catch (e) {
-        console.warn('地点档案生成失败', e)
-      } finally {
-        isExploringRef.current = false
-        setIsExploring(false)
-        setExploringText('')
-      }
-    },
-    [apiKey, mapWorldId, slotIndex, worldFull],
-  )
-
   const handleNavigateBack = useCallback(() => {
     persistSandboxToSlot()
     onNavigateBack?.()
@@ -411,9 +302,8 @@ export default function SandboxGameApp({
   const worldSubtitle = worldFull?.subtitle ?? ''
 
   const inputLocked = gmUiPhase === 'loading' || gmUiPhase === 'typing'
-  const inputDisabled = loading || inputLocked || archiving || isExploring
-  const inputPlaceholder =
-    isExploring ? '正在探索当前地点…' : inputDisabled ? T.gmResponding : T.placeholder
+  const inputDisabled = loading || inputLocked || archiving
+  const inputPlaceholder = inputDisabled ? T.gmResponding : T.placeholder
   const mobileTopTitle = `${worldDisplayName} ${T.dot} ${character?.name ?? ''}`
 
   const openLeftDrawer = useCallback(() => {
@@ -519,22 +409,22 @@ export default function SandboxGameApp({
         setGmFormatWarning(true)
         return false
       }
-      const direction = parseMoveFromReply(result.text)
-      const cleanedText = stripMoveMarker(result.text)
+      const gmText = result.text
 
-      applyCharacterFromGm(cleanedText)
-      if (direction && !isExploringRef.current) {
-        await applyMove(direction)
-      }
+      applyCharacterFromGm(gmText)
       setGmUiPhase('typing')
 
       const gmPlaceholder = { id: gmId, role: 'gm', content: '', ts: gmTs }
       const withGmPlaceholder = [...baseMessages, gmPlaceholder]
       setMessages(withGmPlaceholder)
 
+      if (typeof onGmComplete === 'function') {
+        onGmComplete(gmText)
+      }
+
       try {
         await runSandboxTypewriter({
-          text: cleanedText,
+          text: gmText,
           signal,
           onUpdate: (partial) => {
             setMessages(
@@ -551,17 +441,14 @@ export default function SandboxGameApp({
       }
 
       const finalMessages = withGmPlaceholder.map((m) =>
-        m.id === gmId ? { ...m, content: cleanedText } : m,
+        m.id === gmId ? { ...m, content: gmText } : m,
       )
       setMessages(finalMessages)
       setGmUiPhase(null)
       persistSandboxToSlot({ messages: finalMessages })
-      if (typeof onGmComplete === 'function') {
-        onGmComplete(cleanedText)
-      }
       return true
     },
-    [applyCharacterFromGm, applyMove, persistSandboxToSlot],
+    [applyCharacterFromGm, persistSandboxToSlot],
   )
 
   const enqueueRollingSummary = useCallback((n, m) => {
@@ -646,8 +533,6 @@ export default function SandboxGameApp({
         factTurn,
         onExtractComplete: refreshExtractedState,
         regenerate,
-        currentCoords,
-        currentLocationName: worldFull?.name ?? '',
       })
       if (turnOk && incrementTurnCount) {
         setPlayerTurnCount((prev) => {
@@ -685,8 +570,6 @@ export default function SandboxGameApp({
       slotIndex,
       playerTurnCount,
       refreshExtractedState,
-      currentCoords,
-      worldFull,
     ],
   )
 
@@ -725,7 +608,7 @@ export default function SandboxGameApp({
 
   const handleFeedback = useCallback(
     (msgId, kind) => {
-      if (loading || gmUiPhase) return
+      if (loading || gmUiPhase || mapNamingLocked) return
       if (lastFeedback === kind && feedbackMsgId === msgId) {
         setLastFeedback(null)
         setFeedbackMsgId(null)
@@ -734,7 +617,7 @@ export default function SandboxGameApp({
         setFeedbackMsgId(msgId)
       }
     },
-    [loading, gmUiPhase, lastFeedback, feedbackMsgId],
+    [loading, gmUiPhase, mapNamingLocked, lastFeedback, feedbackMsgId],
   )
 
   const handleRegenerate = useCallback(async () => {
@@ -852,11 +735,6 @@ export default function SandboxGameApp({
     <SandboxStatCard character={character} flash={statFlash} onChange={updateCharacterStat} />
   )
 
-  const leftMinimap =
-    prologueComplete ? (
-      <MiniMap grid={continentGrid} currentPos={currentCoords} />
-    ) : null
-
   const panelLabels = {
     playerTab: T.playerTab,
     companionsTab: T.companionsTab,
@@ -892,7 +770,6 @@ export default function SandboxGameApp({
       playerInventory={playerInventory}
       companions={companions}
       statCard={statCard}
-      minimapSlot={leftMinimap}
       labels={panelLabels}
       safeSkillValue={safeSkillValue}
     />
@@ -1034,17 +911,9 @@ export default function SandboxGameApp({
     </>
   )
 
-  const exploringHint = isExploring ? (
-    <div className="exploring-hint" role="status" aria-live="polite">
-      <span className="exploring-dot">◆</span>
-      <span>{exploringText || '正在探索...'}</span>
-    </div>
-  ) : null
-
   const renderInputBar = (/** @type {'desktop'|'mobile'} */ variant) =>
     variant === 'mobile' ? (
       <>
-        {exploringHint}
         <textarea
           className="main-input main-input-mobile"
           rows={1}
@@ -1070,7 +939,6 @@ export default function SandboxGameApp({
       </>
     ) : (
       <>
-        {exploringHint}
         <input
           type="text"
           className="main-input"
@@ -1113,15 +981,6 @@ export default function SandboxGameApp({
               }}
             >
               📜
-            </button>
-            <button
-              type="button"
-              className="btn-header-secondary btn-touch sandbox-map-btn"
-              aria-label={T.worldMap}
-              title={T.worldMap}
-              onClick={() => setMapOpen(true)}
-            >
-              🗺️
             </button>
             {onResetStory ? (
               <button type="button" className="btn-reset btn-touch" onClick={onResetStory}>
@@ -1215,15 +1074,6 @@ export default function SandboxGameApp({
         <button
           type="button"
           className="mobile-drawer-trigger btn-touch"
-          aria-label={T.worldMap}
-          title={T.worldMap}
-          onClick={() => setMapOpen(true)}
-        >
-          🗺️
-        </button>
-        <button
-          type="button"
-          className="mobile-drawer-trigger btn-touch"
           aria-label={T.rightPanel}
           title={T.rightPanel}
           aria-expanded={rightDrawerOpen}
@@ -1255,26 +1105,6 @@ export default function SandboxGameApp({
       {showTimeline ? (
         <TimelineOverlay events={timelineEvents} onClose={() => setShowTimeline(false)} />
       ) : null}
-
-      <MapOverlay
-        isOpen={mapOpen}
-        mapWorldId={mapWorldId}
-        onClose={() => {
-          setMapOpen(false)
-          const saved = loadMapState(slotIndex)
-          if (saved?.continentGrid?.length) setContinentGrid(saved.continentGrid)
-          setCurrentCoords(continentCoordsFromMapState(saved))
-        }}
-        slotIndex={slotIndex}
-        onContinentMove={(x, y) => {
-          setCurrentCoords({ x, y })
-          const saved = loadMapState(slotIndex)
-          if (saved?.continentGrid?.length) setContinentGrid(saved.continentGrid)
-        }}
-        onNewCell={(layer, x, y) => {
-          if (layer === 'continent') setCurrentCoords({ x, y })
-        }}
-      />
     </div>
   )
 }
