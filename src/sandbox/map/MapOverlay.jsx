@@ -49,7 +49,7 @@ function MapOverlayInner({ slotIndex, mapWorldId, onClose, onNewCell, onContinen
   const initialState = useMemo(() => loadOrCreateMapState(slotIndex), [slotIndex])
   const persistSkipRef = useRef(true)
 
-  const { state, moveTo, enterLocalMap, exitLocalMap } = useGameState({
+  const { state, exitLocalMap } = useGameState({
     initialState,
     mapWorldId,
     onNewCell,
@@ -84,20 +84,11 @@ function MapOverlayInner({ slotIndex, mapWorldId, onClose, onNewCell, onContinen
       <div className="map-overlay__body">
         <div className="map-overlay__inner">
           {state.layer === 'continent' ? (
-            <ContinentMap
-              grid={state.continentGrid}
-              currentPos={state.continentPos}
-              onMove={(x, y) => {
-                moveTo('continent', x, y)
-                onContinentMove?.(x, y)
-              }}
-              onEnterLocal={(x, y) => enterLocalMap(x, y)}
-            />
+            <ContinentMap grid={state.continentGrid} currentPos={state.continentPos} />
           ) : (
             <LocalMap
               grid={state.localGrid}
               currentPos={state.localPos}
-              onMove={(x, y) => moveTo('local', x, y)}
               onExit={exitLocalMap}
             />
           )}

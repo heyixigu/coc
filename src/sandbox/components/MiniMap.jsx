@@ -44,8 +44,6 @@ export default function MiniMap({ grid, currentPos }) {
             return <div key={key} className="minimap-cell minimap-cell--fog" />
           }
 
-          const canEnter = cell.type === 'town' || cell.type === 'dungeon'
-
           return (
             <div
               key={key}
@@ -53,7 +51,6 @@ export default function MiniMap({ grid, currentPos }) {
                 'minimap-cell',
                 `minimap-cell--${cell.type}`,
                 isCenter ? 'minimap-cell--current' : '',
-                canEnter ? 'minimap-cell--enterable' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -62,9 +59,6 @@ export default function MiniMap({ grid, currentPos }) {
                 {isCenter ? '★' : ''}
                 {cell.name}
               </span>
-              {canEnter && !isCenter ? (
-                <span className="minimap-cell-enter">可进入</span>
-              ) : null}
             </div>
           )
         })}

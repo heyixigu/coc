@@ -29,6 +29,90 @@ const SKILL_TOTAL = 350
 const SKILL_MIN = 5
 const SKILL_MAX = 80
 
+/** @type {Record<string, { id: string, label: string, background: string, skills: Record<string, number> }[]>} */
+const WORLD_PRESETS = {
+  east: [
+    {
+      id: 'swordsman',
+      label: '江湖侠客',
+      background: '游历四方的剑客，以剑为生，行侠仗义，身上带着数不清的江湖恩怨。',
+      skills: { 战斗: 70, 交涉: 40, 感知: 50, 潜行: 45, 学识: 30, 意志: 65, 体魄: 50 },
+    },
+    {
+      id: 'daoist',
+      label: '入世道士',
+      background: '下山历练的道门弟子，通晓符箓术法，受师命寻访尘世异象。',
+      skills: { 战斗: 40, 交涉: 45, 感知: 65, 潜行: 35, 学识: 70, 意志: 70, 体魄: 25 },
+    },
+    {
+      id: 'merchant',
+      label: '行商巨贾',
+      background: '走南闯北的富商，长袖善舞，消息灵通，背后却藏着不为人知的秘密。',
+      skills: { 战斗: 25, 交涉: 75, 感知: 55, 潜行: 50, 学识: 60, 意志: 50, 体魄: 35 },
+    },
+  ],
+  fantasy: [
+    {
+      id: 'warrior',
+      label: '战场老兵',
+      background: '历经百战的雇佣兵，铁血冷静，为了赎罪或金币踏上新的征途。',
+      skills: { 战斗: 75, 交涉: 35, 感知: 45, 潜行: 40, 学识: 25, 意志: 60, 体魄: 70 },
+    },
+    {
+      id: 'mage',
+      label: '学院法师',
+      background: '魔法学院的毕业生，知识渊博却缺乏实战，带着导师遗留的未解谜题出走。',
+      skills: { 战斗: 25, 交涉: 50, 感知: 60, 潜行: 30, 学识: 80, 意志: 70, 体魄: 35 },
+    },
+    {
+      id: 'ranger',
+      label: '边境游侠',
+      background: '在荒野与边境城镇间穿行的独行者，善于追踪，与自然为伴。',
+      skills: { 战斗: 55, 交涉: 40, 感知: 75, 潜行: 65, 学识: 35, 意志: 45, 体魄: 35 },
+    },
+  ],
+  cyberpunk: [
+    {
+      id: 'hacker',
+      label: '顶级黑客',
+      background: '深潜赛博空间的数据幽灵，出卖信息为生，某次入侵让他陷入了更深的漩涡。',
+      skills: { 战斗: 25, 交涉: 50, 感知: 65, 潜行: 60, 学识: 80, 意志: 55, 体魄: 15 },
+    },
+    {
+      id: 'streetfighter',
+      label: '街头战士',
+      background: '底层区长大的改造人，靠拳头和钢铁身躯在帮派夹缝中存活至今。',
+      skills: { 战斗: 80, 交涉: 30, 感知: 50, 潜行: 35, 学识: 20, 意志: 55, 体魄: 80 },
+    },
+    {
+      id: 'agent',
+      label: '企业特工',
+      background: '为某大财团执行灰色任务的前特种兵，现在不确定自己究竟为谁效命。',
+      skills: { 战斗: 65, 交涉: 55, 感知: 60, 潜行: 60, 学识: 35, 意志: 50, 体魄: 25 },
+    },
+  ],
+  wasteland: [
+    {
+      id: 'scavenger',
+      label: '老练拾荒者',
+      background: '废土上摸爬滚打多年的老手，知道哪里有物资，也知道哪里不该去。',
+      skills: { 战斗: 40, 交涉: 50, 感知: 75, 潜行: 65, 学识: 40, 意志: 45, 体魄: 35 },
+    },
+    {
+      id: 'hunter',
+      label: '变异猎人',
+      background: '专门猎杀危险变异体为生，身上有轻微变异却仍保持人形，被两方都排斥。',
+      skills: { 战斗: 75, 交涉: 25, 感知: 70, 潜行: 55, 学识: 25, 意志: 60, 体魄: 40 },
+    },
+    {
+      id: 'soldier',
+      label: '前线军人',
+      background: '旧秩序军队的幸存者，部队覆灭后独自流浪，还没放下那套军人准则。',
+      skills: { 战斗: 70, 交涉: 40, 感知: 55, 潜行: 45, 学识: 35, 意志: 70, 体魄: 35 },
+    },
+  ],
+}
+
 /**
  * @typedef {import('../sandboxStorage.js').SandboxGender} SandboxGender
  */
@@ -59,6 +143,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
   const [skills, setSkills] = useState(() =>
     saved.character?.skills ? { ...saved.character.skills } : defaultSkills(),
   )
+  const [selectedPresetId, setSelectedPresetId] = useState(null)
 
   const [openingText, setOpeningText] = useState('')
   const [openingLoading, setOpeningLoading] = useState(false)
@@ -82,6 +167,12 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
       if (next === cur) return prev
       return { ...prev, [skillName]: next }
     })
+  }, [])
+
+  const applyPreset = useCallback((preset) => {
+    setSelectedPresetId(preset.id)
+    setBackground(preset.background)
+    setSkills({ ...preset.skills })
   }, [])
 
   const buildCharacter = useCallback(() => {
@@ -261,7 +352,10 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                   key={w.id}
                   type="button"
                   className={`sandbox-world-card${worldId === w.id ? ' selected' : ''}`}
-                  onClick={() => setWorldId(w.id)}
+                  onClick={() => {
+                    setWorldId(w.id)
+                    setSelectedPresetId(null)
+                  }}
                 >
                   <h3 className="sandbox-world-card-title">{w.name}</h3>
                   <p className="sandbox-world-card-sub">{w.subtitle}</p>
@@ -269,6 +363,24 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                 </button>
               ))}
             </section>
+            {selectedWorld && WORLD_PRESETS[worldId] ? (
+              <section className="sandbox-presets-section">
+                <h3 className="sandbox-presets-title">选择预设开局（可选）</h3>
+                <section className="sandbox-presets-list">
+                  {WORLD_PRESETS[worldId].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`sandbox-preset-card${selectedPresetId === preset.id ? ' selected' : ''}`}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      <span className="sandbox-preset-label">{preset.label}</span>
+                      <span className="sandbox-preset-bg">{preset.background}</span>
+                    </button>
+                  ))}
+                </section>
+              </section>
+            ) : null}
             <section className="prologue-footer">
               <button
                 type="button"
@@ -332,6 +444,14 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                     <section className="sandbox-skill-controls">
                       <button
                         type="button"
+                        className="sandbox-skill-btn sandbox-skill-btn-lg"
+                        disabled={(skills[skillName] ?? 0) - 10 < SKILL_MIN}
+                        onClick={() => adjustSkill(skillName, -10)}
+                      >
+                        -10
+                      </button>
+                      <button
+                        type="button"
                         className="sandbox-skill-btn"
                         disabled={(skills[skillName] ?? 0) <= SKILL_MIN}
                         onClick={() => adjustSkill(skillName, -1)}
@@ -342,12 +462,20 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                       <button
                         type="button"
                         className="sandbox-skill-btn"
-                        disabled={
-                          (skills[skillName] ?? 0) >= SKILL_MAX || remaining <= 0
-                        }
+                        disabled={(skills[skillName] ?? 0) >= SKILL_MAX || remaining <= 0}
                         onClick={() => adjustSkill(skillName, 1)}
                       >
                         +
+                      </button>
+                      <button
+                        type="button"
+                        className="sandbox-skill-btn sandbox-skill-btn-lg"
+                        disabled={
+                          (skills[skillName] ?? 0) + 10 > SKILL_MAX || remaining < 10
+                        }
+                        onClick={() => adjustSkill(skillName, 10)}
+                      >
+                        +10
                       </button>
                     </section>
                   </section>

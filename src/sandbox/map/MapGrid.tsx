@@ -4,11 +4,9 @@ import { CellBlock } from './CellBlock';
 interface MapGridProps {
   grid: Grid;
   currentPos: Position;
-  onCellClick: (x: number, y: number) => void;
-  onCellEnter?: (x: number, y: number) => void;
 }
 
-export function MapGrid({ grid, currentPos, onCellClick, onCellEnter }: MapGridProps) {
+export function MapGrid({ grid, currentPos }: MapGridProps) {
   const rows = grid.length;
   const cols = grid[0]?.length ?? 0;
 
@@ -59,8 +57,6 @@ export function MapGrid({ grid, currentPos, onCellClick, onCellEnter }: MapGridP
               key={key}
               cell={cell}
               isCurrent={isCurrent}
-              onClick={() => onCellClick(item.cx!, item.cy!)}
-              onEnter={() => onCellEnter?.(item.cx!, item.cy!)}
             />
           );
         }

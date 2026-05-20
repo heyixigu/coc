@@ -4,11 +4,10 @@ import { MapGrid } from './MapGrid';
 interface LocalMapProps {
   grid: Grid;
   currentPos: Position;
-  onMove: (x: number, y: number) => void;
   onExit: () => void;
 }
 
-export function LocalMap({ grid, currentPos, onMove, onExit }: LocalMapProps) {
+export function LocalMap({ grid, currentPos, onExit }: LocalMapProps) {
   return (
     <div className="map-container">
       <div className="map-header">
@@ -17,11 +16,7 @@ export function LocalMap({ grid, currentPos, onMove, onExit }: LocalMapProps) {
           ← 返回大陆
         </button>
       </div>
-      <MapGrid
-        grid={grid}
-        currentPos={currentPos}
-        onCellClick={onMove}
-      />
+      <MapGrid grid={grid} currentPos={currentPos} />
     </div>
   );
 }

@@ -3,8 +3,6 @@ import type { Cell } from './types';
 interface CellBlockProps {
   cell: Cell;
   isCurrent: boolean;
-  onClick?: () => void;
-  onEnter?: () => void;
 }
 
 function padCellText(name: string): string {
@@ -15,22 +13,12 @@ function padCellText(name: string): string {
   return ' '.repeat(left) + name + ' '.repeat(right);
 }
 
-export function CellBlock({ cell, isCurrent, onClick, onEnter }: CellBlockProps) {
+export function CellBlock({ cell, isCurrent }: CellBlockProps) {
   const displayName = (() => {
     if (!cell.explored) return '[  ??  ]';
     const inner = padCellText(cell.name);
     return `[${inner}]`;
   })();
-
-  const canEnter = isCurrent && cell.explored && (cell.type === 'town' || cell.type === 'dungeon') && !!onEnter;
-
-  const handleClick = () => {
-    if (canEnter && onEnter) {
-      onEnter();
-    } else if (onClick) {
-      onClick();
-    }
-  };
 
   const classes = [
     'cell',
@@ -42,20 +30,9 @@ export function CellBlock({ cell, isCurrent, onClick, onEnter }: CellBlockProps)
     .join(' ');
 
   return (
-    <div className={classes} onClick={handleClick} title={cell.explored ? `${cell.name} (${cell.type})` : '未探索'}>
+    <div className={classes} title={cell.explored ? `${cell.name} (${cell.type})` : '未探索'}>
       <span className="cell__text">{displayName}</span>
-      {isCurrent && (
-        <span className="cell__indicator">◆ 当前</span>
-      )}
-      {canEnter && (
-        <button
-          type="button"
-          className="cell__enter-btn"
-          onClick={e => { e.stopPropagation(); onEnter?.(); }}
-        >
-          进入
-        </button>
-      )}
+      {isCurrent && <span className="cell__indicator">◆ 当前</span>}
     </div>
   );
 }
