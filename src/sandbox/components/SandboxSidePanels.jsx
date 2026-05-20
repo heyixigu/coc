@@ -17,6 +17,7 @@ import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
  *   playerInventory: SandboxPlayerInventory,
  *   companions: SandboxCompanion[],
  *   statCard: import('react').ReactNode,
+ *   minimapSlot?: import('react').ReactNode,
  *   labels: Record<string, string>,
  *   safeSkillValue: (c: SandboxCharacter, skill: string) => number,
  * }} props
@@ -28,6 +29,7 @@ export function SandboxLeftPanelTabs({
   playerInventory,
   companions,
   statCard,
+  minimapSlot = null,
   labels,
   safeSkillValue,
 }) {
@@ -36,6 +38,8 @@ export function SandboxLeftPanelTabs({
 
   return (
     <>
+      {minimapSlot}
+
       <div className="sandbox-tab-header left-tab-header">
         <button
           type="button"

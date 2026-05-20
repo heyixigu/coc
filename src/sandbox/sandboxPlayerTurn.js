@@ -10,6 +10,7 @@ import { buildSandboxContextMessage } from './sandboxContextInject.js'
 import { resolveSandboxSkillChecks } from './sandboxDice.js'
 import { buildSandboxGmApiChain } from './sandboxMessageChain.js'
 import { extractAllStateUpdates } from './sandboxFactExtractor.js'
+import { extractLocalEvents } from './sandboxEventExtractor.js'
 import { filterRelevantMemoryGraph, matchRelevantNpcs } from './sandboxNpcMatcher.js'
 import {
   getActiveFacts,
@@ -86,6 +87,8 @@ export function resolveSandboxCheckValues(checks, character, companions) {
  * @param {number} [o.factTurn] 写入事实库时的轮次（通常为 playerTurnCount+1）
  * @param {() => void} [o.onExtractComplete] 事实/时间线提取成功后回调
  * @param {boolean} [o.regenerate] 重新生成：提取前先回滚本轮后台状态
+ * @param {{ x: number, y: number }} [o.currentCoords] 大陆地图坐标
+ * @param {string} [o.currentLocationName] 当前地点名
  */
 export async function runSandboxPlayerTurn({
   apiKey,
@@ -108,6 +111,8 @@ export async function runSandboxPlayerTurn({
   factTurn = 0,
   onExtractComplete,
   regenerate = false,
+  currentCoords = { x: 3, y: 3 },
+  currentLocationName = '',
 }) {
   const key = apiKey.trim()
   const actionText = userMsg.content
@@ -211,7 +216,13 @@ export async function runSandboxPlayerTurn({
     slotIndex != null && Number.isFinite(slotIndex)
       ? loadQuestState(slotIndex)
       : { quests: [] }
-  const systemText = `${buildSandboxGmPrompt(character, world, archivedEvents, relevantNpcs, activeCompanions, activeFacts, recentEvents, worldState, questState, relevantMemoryGraph)}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
+  const coords = currentCoords ?? { x: 3, y: 3 }
+  const locationName =
+    currentLocationName?.trim() ||
+    worldState.locations?.[0]?.name?.trim() ||
+    world.name ||
+    '未知'
+  const systemText = `${buildSandboxGmPrompt(character, world, archivedEvents, relevantNpcs, activeCompanions, activeFacts, recentEvents, worldState, questState, relevantMemoryGraph, slotIndex ?? null, coords)}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
   const chain = buildSandboxGmApiChain(historyMessages, preSystemMessages, contextMsg)
 
   const onGmComplete =
@@ -225,6 +236,14 @@ export async function runSandboxPlayerTurn({
             onComplete: onExtractComplete,
             rollbackBeforeExtract: regenerate,
           }).catch(() => {})
+          extractLocalEvents({
+            apiKey: key,
+            slotIndex,
+            worldName: world.name,
+            currentCoords: coords,
+            currentLocationName: locationName,
+            latestDialogue: gmReply,
+          }).catch((e) => console.warn('事件提取静默失败', e))
         }
       : undefined
 

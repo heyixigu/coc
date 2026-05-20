@@ -1,4 +1,6 @@
 import { exportCocSlot, importCocSlot } from '../storage.js'
+import { clearMapState } from './map/mapStorage.js'
+import { clearWorldMemory } from './sandboxWorldMemory.js'
 import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
 
 const SANDBOX_SLOT_COUNT = 4
@@ -1147,6 +1149,8 @@ function removeSandboxSlotKeys(slotIndex) {
   } catch {
     /* */
   }
+  clearWorldMemory(slotIndex)
+  clearMapState(slotIndex)
 }
 
 function isSandboxStateEmpty(gs) {

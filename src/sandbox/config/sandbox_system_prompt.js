@@ -1,3 +1,4 @@
+import { buildWorldMemoryContext, DEFAULT_MAP_COORDS } from '../sandboxWorldMemory.js'
 import { SANDBOX_SKILL_NAMES } from './sandbox_judge_prompt.js'
 import { SANDBOX_WORLD_DETAILS } from './sandbox_world_details.js'
 
@@ -186,6 +187,8 @@ ${body}`
  * @param {SandboxWorldState} [worldState]
  * @param {SandboxQuestState} [questState]
  * @param {SandboxNpcMemoryGraph} [relevantMemoryGraph]
+ * @param {number | null} [slotIndex] 1-based，用于注入世界记忆
+ * @param {{ x: number, y: number }} [currentCoords]
  */
 export function buildSandboxGmPrompt(
   character,
@@ -198,6 +201,8 @@ export function buildSandboxGmPrompt(
   worldState = { locations: [], factions: [], environment: [], keyItems: [] },
   questState = { quests: [] },
   relevantMemoryGraph = { nodes: [], edges: [] },
+  slotIndex = null,
+  currentCoords = DEFAULT_MAP_COORDS,
 ) {
   const items =
     character.items.length > 0 ? character.items.join('、') : '无'
@@ -285,12 +290,39 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
 - 无对抗的日常描写
 
 【投骰】
-当对话中出现 [ROLL_RESULT:技能名:数值:判定] 后，再根据骰点继续写后果。判定为：大成功、成功、失败、大失败。`
+当对话中出现 [ROLL_RESULT:技能名:数值:判定] 后，再根据骰点继续写后果。判定为：大成功、成功、失败、大失败。
+
+---
+【地图移动规则】
+当玩家的行为涉及方向性移动时（向北/南/东/西走，前进，离开，穿越等），
+在GM回复的最末尾追加移动标记，格式严格如下：
+[MOVE:north] 或 [MOVE:south] 或 [MOVE:east] 或 [MOVE:west]
+
+规则：
+- 只有玩家真正发生了位置转移才追加标记，原地行动不追加
+- 每次回复最多一个MOVE标记
+- 标记放在回复最末尾，单独一行
+- 玩家在局部地图内移动不追加标记，只有大陆层移动才追加
+---`
   const archiveCtx = buildSandboxArchivedEventsContext(archivedEvents)
   const body = archiveCtx ? `${base}\n\n${archiveCtx}` : base
+
+  let worldMemoryBlock = ''
+  if (slotIndex != null && Number.isFinite(slotIndex)) {
+    const worldMemoryContext = buildWorldMemoryContext(slotIndex, currentCoords)
+    if (worldMemoryContext) {
+      worldMemoryBlock = `
+---
+${worldMemoryContext}
+---
+以上是世界历史背景，在叙事中自然体现，不要直接朗读给玩家。
+`
+    }
+  }
+
   return `${characterContext}
 ${world.flavor}
-${factContext ? `${factContext}\n` : ''}${timelineContext ? `${timelineContext}\n` : ''}${worldStateContext ? `${worldStateContext}\n` : ''}${questContext ? `${questContext}\n` : ''}${memoryContext ? `${memoryContext}\n` : ''}${body}`
+${factContext ? `${factContext}\n` : ''}${timelineContext ? `${timelineContext}\n` : ''}${worldStateContext ? `${worldStateContext}\n` : ''}${questContext ? `${questContext}\n` : ''}${memoryContext ? `${memoryContext}\n` : ''}${worldMemoryBlock}${body}`
 }
 
 

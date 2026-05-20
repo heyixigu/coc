@@ -184,3 +184,13 @@ export const SANDBOX_WORLD_DETAILS = {
     },
   },
 }
+
+/**
+ * @param {import('./sandbox_worlds.js').SandboxWorldId} worldId
+ * @returns {string[]}
+ */
+export function getWorldRaces(worldId) {
+  const detail = SANDBOX_WORLD_DETAILS[worldId]
+  if (!detail?.socialClasses?.length) return []
+  return detail.socialClasses.map((c) => c.name)
+}

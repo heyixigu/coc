@@ -1,0 +1,270 @@
+.map-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 5, 4, 0.92);
+  color: #c0c0c0;
+  font-family: 'Courier New', 'Consolas', 'Source Code Pro', monospace;
+}
+
+.map-overlay__header {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgba(120, 90, 70, 0.35);
+  background: rgba(12, 10, 8, 0.95);
+}
+
+.map-overlay__close {
+  border: 1px solid rgba(120, 90, 70, 0.45);
+  background: rgba(28, 24, 20, 0.92);
+  color: #e8dcc8;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.map-overlay__close:hover {
+  border-color: rgba(180, 150, 110, 0.55);
+  color: #ffd700;
+}
+
+.map-overlay__title {
+  margin: 0;
+  text-align: center;
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  color: #ffd700;
+}
+
+.map-overlay__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.map-overlay__inner {
+  width: 100%;
+  max-width: 960px;
+}
+
+.map-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.map-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.map-title {
+  font-size: 1.1rem;
+  color: #888;
+  letter-spacing: 2px;
+}
+
+.back-btn {
+  background: #222;
+  border: 1px solid #555;
+  color: #8af;
+  padding: 4px 12px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.back-btn:hover {
+  background: #333;
+  border-color: #8af;
+  text-shadow: 0 0 6px rgba(136, 170, 255, 0.4);
+}
+
+.map-grid {
+  background: #0e0e0e;
+  border: 1px solid #1a1a1a;
+  padding: 8px;
+}
+
+.cell {
+  width: 100px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  border: 1px solid #222;
+  background: #111;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+  user-select: none;
+}
+
+.cell:hover {
+  border-color: #555;
+  background: #181818;
+}
+
+.cell__text {
+  font-size: 0.9rem;
+  color: #e0e0e0;
+  letter-spacing: 1px;
+  line-height: 1.2;
+}
+
+.cell__indicator {
+  font-size: 0.6rem;
+  color: #ffd700;
+  letter-spacing: 1px;
+  line-height: 1;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.cell--unexplored {
+  background: #0a0a0a;
+  border-color: #151515;
+}
+
+.cell--unexplored .cell__text {
+  color: #444;
+  opacity: 0.5;
+}
+
+.cell--current {
+  border-color: #ffd700;
+  background: #1a1500;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.15), inset 0 0 12px rgba(255, 215, 0, 0.05);
+}
+
+.cell--current .cell__text {
+  color: #ffd700;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+}
+
+.cell--town {
+  border-color: #2a4a2a;
+}
+
+.cell--town .cell__text {
+  color: #6d8;
+}
+
+.cell--dungeon {
+  border-color: #4a1a2a;
+}
+
+.cell--dungeon .cell__text {
+  color: #d68;
+}
+
+.cell--wild {
+  border-color: #2a3a2a;
+}
+
+.cell--wild .cell__text {
+  color: #8a8;
+}
+
+.cell--road {
+  border-color: #3a3a2a;
+}
+
+.cell--road .cell__text {
+  color: #aa8;
+}
+
+.cell__enter-btn {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: #333;
+  border: 1px solid #666;
+  color: #8af;
+  font-family: inherit;
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1.2;
+}
+
+.cell:hover .cell__enter-btn {
+  opacity: 1;
+}
+
+.cell__enter-btn:hover {
+  background: #444;
+  border-color: #8af;
+}
+
+.conn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: #333;
+  width: 16px;
+  height: 48px;
+}
+
+.conn--h {
+  width: 16px;
+  height: 48px;
+}
+
+.conn--v {
+  width: 100px;
+  height: 16px;
+}
+
+.conn--active {
+  color: #555;
+}
+
+.conn--empty {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 768px) {
+  .map-overlay__body {
+    padding: 0.5rem;
+    align-items: stretch;
+  }
+
+  .map-overlay__inner {
+    max-width: none;
+  }
+
+  .cell {
+    width: 72px;
+    height: 42px;
+  }
+
+  .cell__text {
+    font-size: 0.75rem;
+  }
+
+  .conn--v {
+    width: 72px;
+  }
+}
