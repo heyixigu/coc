@@ -20,6 +20,15 @@ export function buildSandboxFeedbackInstruction(feedback) {
   return ''
 }
 
+const SANDBOX_FORMAT_RETRY_HINT = `
+
+【格式纠正】上次回复格式无效。请严格输出六段，【状态变更】在最后且仅为单行 JSON；无变化用 {}；不要用代码块。`
+
+/** @param {string | null | undefined} reason */
+function shouldAppendStateChangeFormatHint(reason) {
+  return reason === 'missing_state_change' || reason === 'invalid_state_change_json'
+}
+
 /**
  * 将反馈附到链上最后一条玩家消息末尾（不改 system prompt）。
  * @param {ChatMsg[]} chain
@@ -68,12 +77,12 @@ export async function fetchValidatedSandboxGmReply({
   }
 
   const chainWithFeedback = applyFeedbackToChain(chain, feedback)
-  const openAiMessages = chainToOpenAiMessages(systemText, chainWithFeedback)
 
-  const attempt = async () => {
+  const attempt = async (extraSystem = '') => {
+    const messages = chainToOpenAiMessages(`${systemText}${extraSystem}`, chainWithFeedback)
     const raw = await postChatNonStream({
       apiKey: key,
-      messages: openAiMessages,
+      messages,
       signal,
     })
     const text = (raw || '').trim()
@@ -89,7 +98,10 @@ export async function fetchValidatedSandboxGmReply({
     let lastRaw = first.raw || ''
 
     if (!text) {
-      const second = await attempt()
+      const retryHint = shouldAppendStateChangeFormatHint(first.reason)
+        ? SANDBOX_FORMAT_RETRY_HINT
+        : ''
+      const second = await attempt(retryHint)
       text = second.text
       lastReason = second.reason || lastReason
       lastRaw = second.raw || lastRaw

@@ -15,11 +15,32 @@ import { getWorldbookInject } from '../../worldbook/worldbookMatcher.js'
  * @typedef {import('./sandbox_worlds.js').SandboxWorld} SandboxWorld
  */
 
+/** 【状态变更】段格式说明（system prompt 与开场 user 消息共用） */
+export const SANDBOX_STATE_CHANGE_INSTRUCTIONS = `【状态变更】格式（必须遵守）：
+- 必须是回复最后一段；标题后紧跟一行 JSON，无前言、无 markdown 代码块、无 // 注释。
+- 键名与字符串必须用英文双引号。剧情写在【当前状态】，JSON 只写程序要同步的变化。
+- 大多数回合若无 NPC/任务/地点/环境/背包/同伴/主角数值变化，只输出：{}
+- 有变化时只写变化的键，不要凑满全部字段。
+
+按需字段（仅在有变化时输出该键）：
+- npcChanges：新 NPC 或关系/状态变化 → [{"name","isNew?","identity?","relationship?","status?"}]
+- questChanges：新任务或进度 → {"newQuests":[{"title","description?","category?":"main|side","objectives?":[]}],"updatedQuests":[{"title","status?","completedObjectives?":[]}]}
+- locationChanges：地点变化 → [{"name","status?","dangerLevel?":1-5,"isNew?"}]
+- environmentChange：天气/时段/季节/过夜 → {"weather?","timeOfDay?","season?","dayPassed?":true}（dayPassed 仅明确过夜时用）
+- playerStatus：主角 HP/MP 变化 → {"hp","maxHp","mp","maxMp"}（数字须与【当前状态】一致）
+- playerInventory：背包变化 → {"equipped":[{"name","description?"}],"carried":[{"name","quantity?"}]}（全量快照，非增量）
+- companionChanges：同伴变化 → [{"name","hp?","maxHp?","mp?","maxMp?","status?":"active|dead|departed"}]（全量）
+
+示例（无变化）：{}
+示例（仅 HP 变化）：{"playerStatus":{"hp":8,"maxHp":12,"mp":4,"maxMp":8}}
+示例（新 NPC）：{"npcChanges":[{"name":"老陈","isNew":true,"identity":"掌柜","relationship":"中立","status":"在店"}]}`
+
 /** 玩家回合：检定结果已预先注入时使用 */
 export const SANDBOX_PRE_ROLL_ADDENDUM = `【本轮检定】
 骰子结果已由系统在同轮玩家消息之后提供（若干行 [ROLL_RESULT:技能名:投掷值:判定]）。
 你直接根据这些已知结果描写后果与场面，一次性写完六段格式回复（含【状态变更】）。
-不需要再插入任何 [ROLL] 标记。`
+不需要再插入任何 [ROLL] 标记。
+【状态变更】无变化时输出 {}，有变化时只写变化的键。`
 
 /**
  * @typedef {import('../sandboxStorage.js').SandboxArchivedEventEntry} SandboxArchivedEventEntry
@@ -329,84 +350,7 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
 - 伙伴技能 5~80，符合背景；伙伴 HP = 10 + floor(体魄/10)，MP = 10 + floor(学识/10)（x/y 须与技能一致）
 - 伙伴参与行动时，在【主角行为】或【他人行为】中体现其行动与检定后果
 - 「【你可以：】」：列出 2~4 个主角可采取的行动；勿问「要不要检定」。
-- 「【状态变更】」：严格按下列 JSON 输出本轮所有状态变化，无变化的字段输出空数组或 null；必须输出，供程序读取：
-
-{
-  "npcChanges": [
-    {
-      "name": "NPC姓名",
-      "isNew": true,
-      "identity": "身份1句",
-      "relationship": "与玩家关系",
-      "status": "当前状态"
-    }
-  ],
-  "questChanges": {
-    "newQuests": [
-      {
-        "title": "任务标题",
-        "description": "任务描述",
-        "category": "main|side",
-        "givenBy": "委托人",
-        "objectives": ["目标描述1", "目标描述2"],
-        "reward": "奖励描述"
-      }
-    ],
-    "updatedQuests": [
-      {
-        "title": "任务标题",
-        "status": "active|completed|failed",
-        "completedObjectives": ["已完成目标描述"]
-      }
-    ]
-  },
-  "locationChanges": [
-    {
-      "name": "地点名",
-      "status": "当前状态",
-      "dangerLevel": 2,
-      "controlledBy": "控制势力，无主填空字符串",
-      "isAccessible": true,
-      "accessNote": "",
-      "isNew": true
-    }
-  ],
-  "environmentChange": {
-    "weather": "天气",
-    "timeOfDay": "清晨|上午|正午|下午|傍晚|夜晚|深夜",
-    "season": "春|夏|秋|冬",
-    "dayPassed": false
-  },
-  "playerInventory": {
-    "equipped": [{"name": "物品名", "description": "简述"}],
-    "carried": [{"name": "物品名", "description": "简述", "quantity": 1}]
-  },
-  "companionChanges": [
-    {
-      "name": "同伴姓名",
-      "hp": 0,
-      "maxHp": 0,
-      "mp": 0,
-      "maxMp": 0,
-      "status": "active|dead|departed",
-      "equipped": [{"name": "物品名", "description": "简述"}],
-      "carried": [{"name": "物品名", "description": "简述", "quantity": 1}]
-    }
-  ],
-  "playerStatus": {
-    "hp": 0,
-    "maxHp": 0,
-    "mp": 0,
-    "maxMp": 0
-  }
-}
-
-【状态变更】注意：
-- 只输出本轮发生变化的内容，无变化字段输出空数组或 null
-- playerInventory 若输出则为完整快照（全量列表），不是增量
-- companionChanges 同理，输出的同伴为完整当前状态
-- dayPassed=true 仅在叙述中出现明确过夜/次日时使用
-- npcChanges 只包含本轮出现或状态变化的 NPC
+- 「【状态变更】」：必须输出，供程序读取。${SANDBOX_STATE_CHANGE_INSTRUCTIONS}
 
 违反格式规定的回复视为无效。不得在六个部分之外添加任何额外内容。
 
@@ -451,5 +395,5 @@ HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
 ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
 物品：无
 开场应引入一个可探索的局面；【主角行为】可写序幕中的被动处境；【他人行为】无则写「无」。
-【状态变更】须输出合法 JSON；开场若无实质变化，各数组字段可为 []，environmentChange 与 playerStatus 可为 null。`
+【状态变更】须为合法 JSON；开场若无实质变化，只输出 {}。`
 }

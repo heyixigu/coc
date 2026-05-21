@@ -75,6 +75,16 @@ export function validateSandboxGmReply(text, characterName = '') {
 }
 
 /**
+ * @param {string} raw
+ * @returns {string}
+ */
+function normalizeStateChangeJsonText(raw) {
+  let s = (raw || '').trim()
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+  return s
+}
+
+/**
  * 从GM回复中提取【状态变更】段的JSON
  * @param {string} reply
  * @returns {object | null}
@@ -82,13 +92,18 @@ export function validateSandboxGmReply(text, characterName = '') {
 export function extractStateChangeJson(reply) {
   const match = reply.match(/【状态变更】\s*([\s\S]*?)(?=【|$)/)
   if (!match) return null
-  const jsonStr = match[1].trim()
+  const jsonStr = normalizeStateChangeJsonText(match[1])
   const start = jsonStr.indexOf('{')
   const end = jsonStr.lastIndexOf('}')
-  if (start === -1 || end === -1) return null
+  if (start === -1 || end === -1 || end < start) {
+    console.warn('[extractStateChangeJson] no JSON object found', jsonStr.slice(0, 200))
+    return null
+  }
+  const slice = jsonStr.slice(start, end + 1)
   try {
-    return JSON.parse(jsonStr.slice(start, end + 1))
-  } catch {
+    return JSON.parse(slice)
+  } catch (e) {
+    console.warn('[extractStateChangeJson] parse failed', slice.slice(0, 300), e)
     return null
   }
 }
