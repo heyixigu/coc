@@ -1,4 +1,4 @@
-import { loadState } from '../../storage.js'
+import { loadState, saveState } from '../../storage.js'
 import { parseSandboxGmStatus } from '../sandboxParseGmStatus.js'
 import {
   applyStateChangeFromGmReply,
@@ -8,29 +8,44 @@ import { clearCustomWorldbook } from '../../worldbook/worldbookStorage.js'
 import {
   computeHpMpFromSkills,
   loadSandboxSlot,
+  normalizeSandboxSlotIndex,
   saveSandboxSlot,
 } from '../sandboxStorage.js'
 
 /**
  * @param {object} opts
+ * @param {number} opts.slotIndex 1-based 沙盒槽位（序幕传入，优先于全局状态）
  * @param {import('../sandboxStorage.js').SandboxCharacter} opts.character
  * @param {import('../sandboxStorage.js').SandboxWorldRef} opts.world
  * @param {string} opts.opening
  * @param {string} [opts.openingRaw] 含【状态变更】的完整 GM 回复
  */
-export function finishSandboxPrologue({ character, world, opening, openingRaw }) {
+export function finishSandboxPrologue({ slotIndex, character, world, opening, openingRaw }) {
+  const slot =
+    normalizeSandboxSlotIndex(slotIndex) ??
+    normalizeSandboxSlotIndex(loadState().selectedSlot)
+
+  if (!slot) {
+    console.warn('[finishSandboxPrologue] invalid slotIndex', {
+      slotIndex,
+      persistedSelectedSlot: loadState().selectedSlot,
+    })
+    throw new Error('未选择存档槽，无法保存沙盒序幕进度')
+  }
+
   const ts = Date.now()
   const { hp, mp, maxHp, maxMp } = computeHpMpFromSkills(character.skills ?? {})
   const characterWithHpMp = { ...character, hp, mp, maxHp, maxMp }
-  const slot = loadState().selectedSlot
   const displayOpening = stripStateChangeSection(opening)
-  if (slot && openingRaw) {
+
+  if (openingRaw) {
     try {
       applyStateChangeFromGmReply(openingRaw, slot, 1)
     } catch {
       /* */
     }
   }
+
   let companions = []
   try {
     const parsed = parseSandboxGmStatus(displayOpening, [], characterWithHpMp.name)
@@ -38,6 +53,7 @@ export function finishSandboxPrologue({ character, world, opening, openingRaw })
   } catch {
     companions = []
   }
+
   const state = {
     character: characterWithHpMp,
     world,
@@ -58,9 +74,6 @@ export function finishSandboxPrologue({ character, world, opening, openingRaw })
     eventIndex: 1,
     companions,
   }
-  if (!slot) {
-    throw new Error('未选择存档槽，无法保存沙盒序幕进度')
-  }
 
   clearCustomWorldbook(slot)
 
@@ -78,5 +91,13 @@ export function finishSandboxPrologue({ character, world, opening, openingRaw })
   if (applied.companions?.length) state.companions = applied.companions
 
   saveSandboxSlot(slot, state)
+
+  try {
+    const prev = loadState()
+    saveState({ ...prev, selectedSlot: slot, selectedMode: 'sandbox' })
+  } catch {
+    /* */
+  }
+
   return state
 }

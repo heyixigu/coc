@@ -7,7 +7,11 @@ import {
 import { fetchValidatedSandboxGmReply } from '../sandboxGmTurn.js'
 import { stripStateChangeSection } from '../sandboxStateChangeParser.js'
 import { runSandboxTypewriter } from '../sandboxTypewriter.js'
-import { computeHpMpFromSkills, loadSandboxSlot } from '../sandboxStorage.js'
+import {
+  computeHpMpFromSkills,
+  loadSandboxSlot,
+  normalizeSandboxSlotIndex,
+} from '../sandboxStorage.js'
 import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
 import ScreenBackButton from '../../screens/ScreenBackButton.jsx'
 import { finishSandboxPrologue } from './finishSandboxPrologue.js'
@@ -113,12 +117,23 @@ function defaultSkills() {
  * @param {{ apiKey: string, slotIndex: number, onComplete: () => void, onNavigateBack?: () => void }} props
  */
 export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavigateBack }) {
-  const saved = useMemo(() => loadSandboxSlot(slotIndex), [slotIndex])
+  const lockedSlotRef = useRef(/** @type {number | null} */ (null))
+  if (lockedSlotRef.current == null) {
+    const n = normalizeSandboxSlotIndex(slotIndex)
+    if (n) lockedSlotRef.current = n
+  }
+  const effectiveSlotIndex = lockedSlotRef.current
+
+  const saved = useMemo(
+    () => loadSandboxSlot(effectiveSlotIndex ?? 1),
+    [effectiveSlotIndex],
+  )
 
   const [step, setStep] = useState(/** @type {1 | 1.5 | 2 | 3} */ (1))
   const [worldId, setWorldId] = useState(() => saved.world?.id ?? SANDBOX_WORLDS[0].id)
   const [regionId, setRegionId] = useState(() => saved.character?.regionId ?? null)
   const [expandedRegion, setExpandedRegion] = useState(/** @type {string | null} */ (null))
+  const [expandedRace, setExpandedRace] = useState(/** @type {string | null} */ (null))
   const [raceId, setRaceId] = useState(() => saved.character?.raceId ?? null)
   const [name, setName] = useState(() => saved.character?.name ?? '')
   const [gender, setGender] = useState(
@@ -225,7 +240,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
       undefined,
       undefined,
       undefined,
-      slotIndex,
+      effectiveSlotIndex,
       userContent,
       '',
     )
@@ -267,7 +282,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
     } finally {
       setOpeningLoading(false)
     }
-  }, [apiKey, buildCharacter, canStep3, selectedWorld, slotIndex])
+  }, [apiKey, buildCharacter, canStep3, selectedWorld, effectiveSlotIndex])
 
   const goStep3 = useCallback(() => {
     if (!canStep3) return
@@ -278,9 +293,15 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
 
   const handleEnterGame = useCallback(() => {
     if (!selectedWorld || !openingText.trim() || !openingReady) return
+    if (!effectiveSlotIndex) {
+      console.warn('[SandboxPrologue] enter game blocked: invalid slotIndex', slotIndex)
+      setError('未选择有效存档槽，请返回重新选择')
+      return
+    }
     setEntering(true)
     try {
       finishSandboxPrologue({
+        slotIndex: effectiveSlotIndex,
         character: buildCharacter(),
         world: {
           id: selectedWorld.id,
@@ -295,7 +316,31 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
       setError(e instanceof Error ? e.message : String(e))
       setEntering(false)
     }
-  }, [buildCharacter, onComplete, openingReady, openingText, selectedWorld])
+  }, [
+    buildCharacter,
+    onComplete,
+    openingReady,
+    openingText,
+    selectedWorld,
+    effectiveSlotIndex,
+    slotIndex,
+  ])
+
+  if (!effectiveSlotIndex) {
+    return (
+      <section className="prologue-root sandbox-prologue-root prologue-fade-in">
+        {onNavigateBack ? <ScreenBackButton onBack={onNavigateBack} /> : null}
+        <section className="prologue-inner sandbox-prologue-inner">
+          <p className="sandbox-prologue-error">未选择有效存档槽，请返回重新选择。</p>
+          {onNavigateBack ? (
+            <button type="button" className="prologue-btn" onClick={onNavigateBack}>
+              返回
+            </button>
+          ) : null}
+        </section>
+      </section>
+    )
+  }
 
   return (
     <section className="prologue-root sandbox-prologue-root prologue-fade-in">
@@ -467,22 +512,39 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                       <div
                         key={race.id}
                         className={`sandbox-race-card${raceId === race.id ? ' selected' : ''}`}
-                        onClick={() => setRaceId(race.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setRaceId(race.id)
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
                       >
-                        <div className="sandbox-race-card-header">
+                        <div
+                          className="sandbox-race-card-header"
+                          onClick={() => setRaceId(race.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setRaceId(race.id)
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
                           <span className="sandbox-race-name">{race.name}</span>
+                          <button
+                            type="button"
+                            className="sandbox-race-expand-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setExpandedRace(expandedRace === race.id ? null : race.id)
+                            }}
+                          >
+                            {expandedRace === race.id ? '收起' : '详情'}
+                          </button>
                         </div>
-                        <p className="sandbox-race-desc">{race.description}</p>
-                        {raceId === race.id ? (
-                          <p className="sandbox-race-attitude">{race.npcBaseAttitude}</p>
+                        {expandedRace === race.id ? (
+                          <div className="sandbox-race-detail">
+                            <p className="sandbox-race-desc">{race.description}</p>
+                            <div className="sandbox-race-attitude-block">
+                              <span className="sandbox-race-attitude-label">NPC 基础态度</span>
+                              <p className="sandbox-race-attitude">{race.npcBaseAttitude}</p>
+                            </div>
+                          </div>
                         ) : null}
                       </div>
                     ))}

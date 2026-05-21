@@ -142,6 +142,16 @@ export function resolveSelectedMode(state) {
 
 const COC_SLOT_COUNT = 2
 
+/** 全局 selectedSlot 索引上限（沙盒 4 槽；CoC 对局数据仍仅使用 1~2 号槽） */
+const APP_SELECTED_SLOT_MAX = 4
+
+/** @param {unknown} raw @returns {number | null} */
+export function normalizeAppSelectedSlot(raw) {
+  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
+  if (!Number.isFinite(n) || n < 1 || n > APP_SELECTED_SLOT_MAX) return null
+  return Math.trunc(n)
+}
+
 /** @param {number} slotIndex 1-based @param {string} field */
 export function getSlotKey(slotIndex, field) {
   return `coc-slot-${slotIndex}-${field}`
@@ -674,11 +684,7 @@ export function loadState() {
     if (!raw) return defaultState()
     const parsed = JSON.parse(raw)
     const base = defaultState()
-    const slotRaw = parsed.selectedSlot
-    const selectedSlot =
-      typeof slotRaw === 'number' && Number.isFinite(slotRaw) && slotRaw >= 1 && slotRaw <= COC_SLOT_COUNT
-        ? Math.trunc(slotRaw)
-        : null
+    const selectedSlot = normalizeAppSelectedSlot(parsed.selectedSlot)
 
     return {
       ...base,
@@ -701,12 +707,9 @@ export function saveState(state) {
         state.selectedMode !== undefined ? normalizeSelectedMode(state.selectedMode) : prev.selectedMode,
       selectedSlot:
         state.selectedSlot !== undefined
-          ? state.selectedSlot === null ||
-            (typeof state.selectedSlot === 'number' &&
-              state.selectedSlot >= 1 &&
-              state.selectedSlot <= 4)
-            ? state.selectedSlot
-            : prev.selectedSlot
+          ? state.selectedSlot === null
+            ? null
+            : (normalizeAppSelectedSlot(state.selectedSlot) ?? prev.selectedSlot)
           : prev.selectedSlot,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))

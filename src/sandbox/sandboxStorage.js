@@ -9,7 +9,17 @@ import {
   migrateWorldState,
 } from './sandboxMigration.js'
 
-const SANDBOX_SLOT_COUNT = 4
+export const SANDBOX_SLOT_COUNT = 4
+
+/**
+ * @param {unknown} slotIndex
+ * @returns {number | null} 1-based 沙盒槽位
+ */
+export function normalizeSandboxSlotIndex(slotIndex) {
+  const n = typeof slotIndex === 'number' ? slotIndex : Number.parseInt(String(slotIndex), 10)
+  if (!Number.isFinite(n) || n < 1 || n > SANDBOX_SLOT_COUNT) return null
+  return Math.trunc(n)
+}
 
 /**
  * @typedef {{

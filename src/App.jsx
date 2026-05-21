@@ -151,9 +151,19 @@ export default function App() {
   }, [navigateTo])
 
   const handleSandboxPrologueComplete = useCallback(() => {
+    const slot = selectedSlot ?? loadState().selectedSlot
+    if (!slot || slot < 1 || slot > 4) {
+      console.warn('[App] sandbox prologue complete but invalid selectedSlot', {
+        selectedSlot,
+        persisted: loadState().selectedSlot,
+      })
+      return
+    }
+    setSelectedSlot(slot)
+    persistPatch({ selectedSlot: slot, selectedMode: 'sandbox' })
     navigateTo('sandboxGame')
     setGameKey((k) => k + 1)
-  }, [navigateTo])
+  }, [navigateTo, selectedSlot, persistPatch])
 
   const handleReplayPrologue = useCallback(() => {
     const mode = selectedMode || resolveSelectedMode(loadState()) || 'coc'
