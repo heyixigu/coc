@@ -1,5 +1,6 @@
 import { exportCocSlot, importCocSlot } from '../storage.js'
 import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
+import { clearCustomWorldbook } from '../worldbook/worldbookStorage.js'
 import {
   migrateSandboxState,
   migrateNpcArchive,
@@ -1471,6 +1472,7 @@ function removeSandboxSlotKeys(slotIndex) {
     }
   }
   clearUndoSnapshot(slotIndex)
+  clearCustomWorldbook(slotIndex)
 }
 
 /** 已移除的地图 / 世界记忆模块遗留 localStorage 字段 */

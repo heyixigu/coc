@@ -218,6 +218,16 @@ export async function runSandboxPlayerTurn({
     slotIndex != null && Number.isFinite(slotIndex)
       ? loadQuestState(slotIndex)
       : { quests: [] }
+
+  let lastGmReply = ''
+  for (let i = historyMessages.length - 1; i >= 0; i--) {
+    const m = historyMessages[i]
+    if (m.role === 'gm' && !m.isSummary) {
+      lastGmReply = m.content ?? ''
+      break
+    }
+  }
+
   const systemText = `${buildSandboxGmPrompt(
     character,
     world,
@@ -230,6 +240,8 @@ export async function runSandboxPlayerTurn({
     questState,
     relevantMemoryGraph,
     slotIndex ?? null,
+    actionText,
+    lastGmReply,
   )}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
   const chain = buildSandboxGmApiChain(historyMessages, preSystemMessages, contextMsg)
 

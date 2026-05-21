@@ -15,12 +15,12 @@
 | 主局 | `GameApp.jsx` | `SandboxGameApp.jsx` |
 | 玩家 | 固定 **何以惜顾**（`player`） | 自建 `SandboxCharacter` |
 | 同伴 | **林知渺**：`partner` 仅数值；台词在 GM `【林知渺】` | 可选 `companions`；NPC 在 `【他人行为】` |
-| GM 格式 | **四段** | **五段** |
+| GM 格式 | **四段** | **六段**（展示五段 + `【状态变更】` JSON） |
 | GM Prompt | `config/system_prompt.js` | `sandbox/config/sandbox_system_prompt.js` `buildSandboxGmPrompt(...)` |
 
 **铁律：模型从不掷 1d100。** 随机数由 `dice.js` / `sandboxDice.js` 生成，以 `[ROLL_RESULT:技能:骰面:判定]` 注入 API chain。
 
-**每轮玩家行动（主路径）**：裁判 Judge（非流式）→ 客户端预掷骰 → 守密人 GM（非流式 + 格式校验 + 打字机）→ 后台逐轮摘要；沙盒另加 **GM 后状态提取**。
+**每轮玩家行动（主路径）**：裁判 Judge（非流式）→ 客户端预掷骰 → 守密人 GM（非流式 + 格式校验 + 打字机）→ 后台逐轮摘要；沙盒另加 **【状态变更】代码解析** + **事实库/时间线/记忆图后台提取**。
 
 **应用路由**：`App.jsx` `screen` 状态机 — `main` → `apiKey` → `modeSelect` → `slotSelect` → 序幕 → 主局。
 
@@ -94,9 +94,9 @@ flowchart TD
 | 阶段 | 主线 | 沙盒 |
 |------|------|------|
 | 序幕 | 人物文案 + AI 相遇 + 三剧本 JSON 单选 | 建角（名/背景/技能/世界观） |
-| 入局 | `finishPrologue` → `messages=[]`；`GameApp` bootstrap | `finishSandboxPrologue` → 开场五段 |
+| 入局 | `finishPrologue` → `messages=[]`；`GameApp` bootstrap | `finishSandboxPrologue` → 开场六段（存剥离后文本） |
 | 循环 | 玩家输入 → `runPlayerTurn` | 玩家输入 → `runSandboxPlayerTurn` |
-| 长对话 | 逐轮摘要 + 每 10 轮滚动摘要 + 可选封档 | 同构 + 事实库/NPC 档案 |
+| 长对话 | 逐轮摘要 + 每 10 轮滚动摘要 + 可选封档 | 同构 + 侧存储（事实/NPC/世界/任务/时间线/记忆图） |
 
 序幕中的 AI 文本（相遇、三剧本 JSON 等）**默认不进入** `messages`；第一幕/开场使用 **虚拟 user**（API chain 有、聊天列表无）。
 
@@ -108,7 +108,7 @@ flowchart TD
 |----|---------|------|----------|
 | 何以惜顾 | **玩家** | `player` | `role: 'player'`；左栏 HP/MP/SAN/符纸 |
 | 林知渺 | **AI 扮演** | `partner` 仅面板 | GM `【林知渺】`，**不是**第二个玩家账号 |
-| 守密人 | **AI** | `gm` | 四段/五段结构化回复 |
+| 守密人 | **AI** | `gm` | 主线四段 / 沙盒六段（聊天存前五段） |
 
 沙盒无 `partner`；玩家角色名来自 `character.name`，行动写在 `【主角行为】`。
 
@@ -135,26 +135,26 @@ flowchart TB
     A[事件封档 archiveEvent]
   end
   subgraph sandboxOnly [仅沙盒 GM 后]
-    X[六合一状态提取 sandboxFactExtractor]
-    E[本地事件 extractLocalEvents]
+    SC[状态变更代码解析 sandboxStateChangeParser]
+    X[事实/时间线/记忆提取 sandboxFactExtractor]
   end
   prologue --> turn
   J --> D --> G
   turn --> T --> R
   turn --> A
-  G --> X
-  G --> E
+  G --> SC
+  SC --> X
 ```
 
 | 角色 | Prompt 位置 | 输入 | 输出 | 调用点 |
 |------|-------------|------|------|--------|
-| **守密人 GM** | 主线 `GM_SYSTEM_PROMPT` + `buildGmSystemPrompt(archivedEvents)`；沙盒 `buildSandboxGmPrompt(...)` | 当轮 `chain` + 历史 `messages` replay | 四段/五段中文 | Bootstrap、每轮 `presentGm` |
+| **守密人 GM** | 主线 `GM_SYSTEM_PROMPT` + `buildGmSystemPrompt(archivedEvents)`；沙盒 `buildSandboxGmPrompt(...)` | 当轮 `chain` + 历史 `messages` replay | 主线四段 / 沙盒六段中文 | Bootstrap、每轮 `presentGm` |
 | **裁判 Judge** | `judge_prompt.js` / `sandbox_judge_prompt.js` | 玩家行动文本 | `[{"skill":"…","value":N},…]` 或 `[]` | `playerTurn` / `sandboxPlayerTurn` 开头 |
 | **逐轮摘要** | `summary_prompt.js` | 单轮 exchange | 2~3 句 | 每轮成功后 `runTurnSummary`（后台） |
 | **滚动摘要** | `buildRollingSummarySystemPrompt` | 第 n–m 轮摘要或原文 | 一条 `isSummary` 消息 | `playerTurnCount % 10 === 0` |
 | **事件封档** | `archiveEvent.js` 内联 | 自上次封档起对话 | `【事件N总结】`…`【封档】` | 玩家输入 **`事件结束，封档`** |
-| **沙盒状态提取** | `sandboxFactExtractor.js` 内 `buildAllStateExtractPrompt` | 本轮 GM 全文 | JSON：事实/NPC/世界/任务/背包等 | GM 完成后 `extractAllStateUpdates`（静默失败） |
-| **沙盒地图事件** | `sandboxEventExtractor.js` | GM 回复 + 坐标 | 时间线条目 | `extractLocalEvents`（静默失败） |
+| **沙盒【状态变更】** | `sandbox_system_prompt.js` 第六段 schema | GM 全文中的 JSON | 结构化 patch | 校验通过后 `applyStateChangeFromGmReply`（同步，无 API） |
+| **沙盒后台提取** | `sandboxFactExtractor.js` `buildAllStateExtractPrompt` | **剥离后**的五段 GM 文本 | JSON：`newFacts` / `updatedFacts` / `timelineEvent` / `memoryGraphUpdates` | `extractAllStateUpdates` 异步（静默失败） |
 
 ### 4.1 OpenAI 消息映射
 
@@ -174,7 +174,10 @@ flowchart TB
 3. 失败 → **静默再请求 1 次**  
 4. 仍失败 → `{ ok: false }`，UI 显示格式警告  
 
-[`GameApp.jsx`](./src/GameApp.jsx) / [`SandboxGameApp.jsx`](./src/sandbox/SandboxGameApp.jsx) 的 `presentGm` 在校验通过后：解析 roster/物品（主线）或沙盒状态 → 打字机 → 落盘。
+[`GameApp.jsx`](./src/GameApp.jsx) / [`SandboxGameApp.jsx`](./src/sandbox/SandboxGameApp.jsx) 的 `presentGm` 在校验通过后：
+
+- **主线**：`syncRosterFromGm` / 物品解析 → 打字机 → 落盘  
+- **沙盒**：`applyStateChangeFromGmReply` → `stripStateChangeSection` → `mergeSandboxFromGmText`（【当前状态】）→ 打字机（仅五段）→ 落盘；`onGmComplete` 触发后台提取
 
 ---
 
@@ -200,20 +203,27 @@ flowchart TB
 
 解析：[`parseGmStatus.js`](./src/parseGmStatus.js)、[`parseGmItems.js`](./src/parseGmItems.js)、[`syncRosterFromGm.js`](./src/syncRosterFromGm.js) — GM 呈现后同步左栏，变化字段闪红/绿约 1s。
 
-### 5.2 沙盒：五段（固定顺序）
+### 5.2 沙盒：六段（固定顺序）
 
-定义：[`buildSandboxGmPrompt`](./src/sandbox/config/sandbox_system_prompt.js)（注入：封档摘要、相关 NPC、同伴、activeFacts、recentEvents、worldState、questState、记忆图、地图坐标等）  
-校验：[`sandboxValidateGmReply.js`](./src/sandbox/sandboxValidateGmReply.js)
+定义：[`buildSandboxGmPrompt`](./src/sandbox/config/sandbox_system_prompt.js)（注入：封档摘要、相关 NPC、同伴、activeFacts、可注入时间线、worldState、questState、记忆子图等）  
+校验：[`sandboxValidateGmReply.js`](./src/sandbox/sandboxValidateGmReply.js)（前五段 + `【状态变更】` 合法 JSON，`extractStateChangeJson`）
 
 | 段 | 内容 |
 |----|------|
 | **【场景】** | 环境与氛围 |
 | **【主角行为】** | 本轮玩家行动在叙事中的展开（预掷须体现后果） |
 | **【他人行为】** | NPC/环境反应；无则写「无」 |
-| **【当前状态】** | `{角色名} HP x/y MP a/b` + `物品：…` |
+| **【当前状态】** | 主角与 active 伙伴 HP/MP/物品行（人读） |
 | **【你可以：】** | 2~4 个可行动项 |
+| **【状态变更】** | 机器 JSON：`npcChanges`、`questChanges`、`locationChanges`、`environmentChange`、`playerInventory`、`companionChanges`、`playerStatus` 等 |
 
-**世界观铁律**（prompt 内嵌）：不得引入克苏鲁/SAN 等越界元素；技能名为沙盒固定八项（战斗、交涉、感知等，见 `SANDBOX_SKILL_NAMES`）。  
+**程序路径**（[`sandboxStateChangeParser.js`](./src/sandbox/sandboxStateChangeParser.js)）：
+
+- 校验通过后 **同步** `applyStateChangeFromGmReply` → 写入主槽与侧存储（NPC 档案、任务、世界状态、背包、同伴数值等）  
+- `stripStateChangeSection` → 打字机与 `messages` 仅存前五段  
+- 任务更新按 **title** 匹配（GM 无内部 id）
+
+**世界观铁律**（prompt 内嵌）：不得引入克苏鲁/SAN 等越界元素；技能名为沙盒固定八项（见 `SANDBOX_SKILL_NAMES`）。  
 玩家回合追加 `SANDBOX_PRE_ROLL_ADDENDUM`，逻辑同主线预掷。
 
 ### 5.3 GM 呈现管线（主路径）
@@ -227,7 +237,9 @@ flowchart TB
   → gmUiPhase=null → persist 槽位
 ```
 
-沙盒在 `onGmComplete(gmReply)` 中 **异步** 触发 `extractAllStateUpdates` + `extractLocalEvents`，不阻塞打字机；重新生成时可 `rollbackBeforeExtract`。
+沙盒在 `onGmComplete(displayText)` 中 **异步** 触发 `extractAllStateUpdates`（仅事实库 / 时间线 / 记忆图），与打字机并行；`onExtractStart` / `onExtractFinished` 驱动撤回按钮「同步中…」状态。重新生成时对**后台提取** `rollbackSandboxExtractForTurn`（【状态变更】已写入部分不自动回滚）。
+
+**撤回**（[`sandboxStorage.js`](./src/sandbox/sandboxStorage.js)）：发送前 `saveUndoSnapshot`（含主槽 + 侧存储）；`restoreUndoSnapshot` 恢复；`playerTurnCount > 1` 时在最后一条玩家消息下显示撤回按钮。
 
 ---
 
@@ -277,10 +289,10 @@ snap（历史 messages，含 isSummary / 封档切片）
 - Judge user 含玩家名、同行伙伴列表  
 - `buildSandboxContextMessage` 角色快照（`contextMsg`）  
 - `buildSandboxGmApiChain` 组装 chain  
-- GM system 注入 NPC 匹配、事实库、世界状态、任务、记忆图、地图坐标  
+- GM system 注入 NPC 匹配、事实库、世界状态、任务、记忆子图等  
 - 支持伙伴检定：`resolveSandboxCheckValues`  
 - `sandboxDice.js`：`consecutiveFails` 连续失败保底  
-- GM 完成后后台 `extractAllStateUpdates`（事实/NPC/世界/任务/背包六合一 JSON 提取）
+- GM 完成后：`applyStateChangeFromGmReply`（同步）+ 后台 `extractAllStateUpdates`（事实 / 时间线 / 记忆图）
 
 封档指令：沙盒 `SANDBOX_ARCHIVE_CMD`（与主线 `事件结束，封档` 同类逻辑，见 `sandboxArchiveEvent.js`）。
 
@@ -325,13 +337,19 @@ snap（历史 messages，含 isSummary / 封档切片）
 
 | 模块 | 职责 |
 |------|------|
-| `sandboxFactExtractor.js` | GM 回复后单次 API 提取：活跃事实、NPC 档案、记忆图、世界状态、任务、背包等 → 写入槽位侧存储 |
+| `sandboxStateChangeParser.js` | 解析 GM 第六段 JSON，写入主槽/侧存储；`stripStateChangeSection` 供展示与提取 |
+| `sandboxFactExtractor.js` | GM 后单次 API：仅 `newFacts`、`updatedFacts`、`timelineEvent`、`memoryGraphUpdates` |
+| `sandboxMigration.js` | 读档迁移：`CURRENT_VERSION`、`migrateSandboxState` 及 NPC/事实/时间线/世界状态补字段 |
 | `sandboxNpcMatcher.js` | 按行动与近期对话匹配相关 NPC / 记忆子图，注入 `buildSandboxGmPrompt` |
 | `sandboxContextInject.js` | 每轮角色/同伴快照 system 文案 |
-| `sandbox/map/*` | 大陆/局域地图 UI、`generateMap.ts`、移动 `sandboxMapMove.js`；坐标传入 GM prompt |
-| `sandboxGlobalEventGenerator.js` | 全局事件生成（与地图/世界记忆配合） |
+| `sandboxExtractRollback.js` | 重新生成时按轮次回滚事实库/时间线/世界/任务/记忆图提取 |
+| `sandboxStorage.js` | 主槽分键 + 侧存储 + `saveUndoSnapshot` / `restoreUndoSnapshot` |
 
-这些模块 **不改变**「裁判 → 预掷 → GM」主顺序；它们丰富 **下一轮** GM 的 system 上下文。
+**世界状态**（`world-state`）：`environment` 为单对象 `{ weather, timeOfDay, season, dayCount }`；`economy`；地点含 `dangerLevel`、`controlledBy`、`isAccessible`、`accessNote`；已废弃 `keyItems`。
+
+**时间线注入**：`getInjectableTimeline` — importance≥4 常驻 + 最近 10 条，上限 20。
+
+这些模块 **不改变**「裁判 → 预掷 → GM」主顺序；它们丰富 **当轮落库** 与 **下一轮** GM 的 system 上下文。
 
 ---
 
@@ -358,7 +376,7 @@ snap（历史 messages，含 isSummary / 封档切片）
 
 ### 10.3 沙盒序幕与开局
 
-[`sandbox/prologue/SandboxPrologue.jsx`](./src/sandbox/prologue/SandboxPrologue.jsx) 建角 → [`finishSandboxPrologue.js`](./src/sandbox/prologue/finishSandboxPrologue.js) → `SandboxGameApp` 用 `buildSandboxOpeningUserMessage` 生成开场五段。
+[`sandbox/prologue/SandboxPrologue.jsx`](./src/sandbox/prologue/SandboxPrologue.jsx) 建角 → 非流式开场六段（展示剥离后文本，`openingRawRef` 保留原文）→ [`finishSandboxPrologue.js`](./src/sandbox/prologue/finishSandboxPrologue.js) 应用 `【状态变更】` 后 `saveSandboxSlot`。
 
 ---
 
@@ -385,16 +403,21 @@ snap（历史 messages，含 isSummary / 封档切片）
 
 ### 11.3 沙盒槽位 `SandboxGameState`（`sandbox-slot-*`）
 
+主槽（`assembleSandboxState` / `persistSandboxState`）：
+
 ```ts
 {
-  character, world, companions[],
+  character, world, companions[], playerInventory,
   messages[], diceLog[],
   playerTurnCount, turnSummaries[], archivedEvents[], eventIndex,
-  consecutiveFails,
-  feedback?: 'like' | 'dislike' | null,
-  // 另有多组侧存储键：NPC 档案、事实库、世界状态、任务、地图、时间线等（见 sandboxStorage.js）
+  consecutiveFails, prologueComplete,
+  __version  // migrateSandboxState 维护
 }
 ```
+
+侧存储键（同槽前缀，见 `getSandboxSlotKey`）：`npc-archive`、`fact-database`、`event-timeline`、`world-state`、`quest-state`、`npc-memory-graph`、`undo-snapshot`。
+
+**加载迁移**：`loadSandboxSlot` / `loadNpcArchive` / `loadFactDatabase` / `loadEventTimeline` / `loadWorldState` 经 `sandboxMigration.js` 补全缺省字段。
 
 聊天消息类型见 `ChatMessage`：`role: 'gm' | 'player' | 'system'`，可选 `isSummary`、`isArchive`。
 
@@ -409,7 +432,7 @@ snap（历史 messages，含 isSummary / 封档切片）
 - **右栏**：最近 5 次掷骰  
 - **底栏**：`inputLocked` 在 bootstrap / GM 生成 / 封档期间锁定  
 
-沙盒额外：地图浮层、时间线、侧栏统计等（[`SandboxSidePanels.jsx`](./src/sandbox/components/SandboxSidePanels.jsx)）。
+沙盒额外：时间线浮层、左右侧栏（世界/任务/NPC/同伴等，[`SandboxSidePanels.jsx`](./src/sandbox/components/SandboxSidePanels.jsx)）、撤回按钮（最后一条玩家消息下）。
 
 **非核心**：`dz/` 像素精灵实验，与 AI 协议无关。
 
@@ -421,7 +444,9 @@ snap（历史 messages，含 isSummary / 封档切片）
 |------|------|
 | `src/App.jsx` | 路由、模式、槽位、重置 |
 | `src/GameApp.jsx` | 主线主局 UI、bootstrap、presentGm、存档 |
-| `src/sandbox/SandboxGameApp.jsx` | 沙盒主局、地图、提取回调 |
+| `src/sandbox/SandboxGameApp.jsx` | 沙盒主局、presentGm、撤回、提取回调 |
+| `src/sandbox/sandboxStateChangeParser.js` | 【状态变更】解析与应用 |
+| `src/sandbox/sandboxMigration.js` | 读档数据迁移 |
 | `src/gmTurn.js` | 非流式 GM + 校验 + 重试 |
 | `src/validateGmReply.js` / `sandbox/sandboxValidateGmReply.js` | GM 格式校验 |
 | `src/typewriter.js` / `sandbox/sandboxTypewriter.js` | 打字机 |
@@ -436,7 +461,8 @@ snap（历史 messages，含 isSummary / 封档切片）
 | `src/resolveTurnRolls.js` | 预掷结果 system 文案 |
 | `src/gmRollLoop.js` | 流式 ROLL 备用（未引用） |
 | `src/turnSummary.js` / `rollingSummary.js` / `archiveEvent.js` | 主线记忆 |
-| `src/sandbox/sandboxFactExtractor.js` | 沙盒 GM 后状态提取 |
+| `src/sandbox/sandboxFactExtractor.js` | 沙盒 GM 后事实/时间线/记忆图提取 |
+| `src/sandbox/sandboxValidateGmReply.js` | 沙盒六段 + JSON 校验 |
 | `src/storage.js` / `sandbox/sandboxStorage.js` | 持久化 |
 
 ---
@@ -446,7 +472,9 @@ snap（历史 messages，含 isSummary / 封档切片）
 | 想改什么 | 改哪里 |
 |----------|--------|
 | 主线 GM 人设 / 四段 / ROLL 协议 | `system_prompt.js` + `validateGmReply.js` + `parseGmStatus` / `parseGmItems` |
-| 沙盒 GM 人设 / 五段 | `sandbox_system_prompt.js` + `sandboxValidateGmReply.js` + 沙盒解析 |
+| 沙盒 GM 人设 / 六段 + JSON | `sandbox_system_prompt.js` + `sandboxValidateGmReply.js` + `sandboxStateChangeParser.js` + `sandboxParseGmStatus.js` |
+| 沙盒读档迁移 | `sandboxMigration.js`（改字段时 `CURRENT_VERSION++`） |
+| 沙盒撤回 | `sandboxStorage.js` 快照函数 + `SandboxGameApp.jsx` |
 | 掷骰公平性 | `dice.js` / `sandboxDice.js` |
 | 成功线 | `cocJudge.js` |
 | GM 非流式 / 重试 | `gmTurn.js` |
@@ -462,10 +490,11 @@ snap（历史 messages，含 isSummary / 封档切片）
 4. 虚拟 user 不进 `messages` 列表  
 5. 主流程已是非流式 GM，勿误接 `gmRollLoop`  
 6. 沙盒勿硬编码 CoC 机制到 UI/叙事  
-7. 改 `isSummary` / `isArchive` 须检查摘要与封档切片  
+7. 【状态变更】不得写入 `messages`；提取 API 用剥离后文本  
+8. 改 `isSummary` / `isArchive` 须检查摘要与封档切片  
 
 ---
 
 ## 15. 一句话总结
 
-> 纯前端双模式文字跑团：**裁判预掷骰 → 非流式 GM（四段/五段）→ 格式校验 → 打字机**；模型写剧情与结构化状态栏，程序写 `1d100`；主线固定何以惜顾+林知渺，沙盒自建世界并靠后台提取维护 NPC/事实/地图上下文；逐轮摘要、滚动摘要与事件封档控制长对话成本。
+> 纯前端双模式文字跑团：**裁判预掷骰 → 非流式 GM → 格式校验 → 打字机**；模型写剧情，程序写 `1d100` 与（沙盒）【状态变更】JSON；沙盒另靠精简后台提取维护事实/时间线/记忆图，并支持读档迁移与单轮撤回；逐轮摘要、滚动摘要与事件封档控制长对话成本。

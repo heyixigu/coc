@@ -1,4 +1,4 @@
-/** @typedef {'east' | 'fantasy' | 'cyberpunk' | 'wasteland'} SandboxWorldId */
+/** @typedef {'east' | 'fantasy' | 'cyberpunk' | 'wasteland' | 'custom'} SandboxWorldId */
 
 /**
  * @typedef {{
@@ -48,6 +48,14 @@ export const SANDBOX_WORLDS = [
     flavor:
       '这是一个文明崩塌后的废土世界。核战、瘟疫或未知灾难摧毁了旧世界，幸存者在废墟、荒漠、破败城市中挣扎求生。派系割据，资源稀缺，道德底线在生存压力下不断被试探。故事基调是硬核生存与人性考验：危机来自资源匮乏、派系冲突、变异生物、旧世界遗留的危险设施。叙事风格写实粗粝，有希望也有绝望。禁止出现克苏鲁元素和超自然恐惧。变异生物有生物逻辑可循，旧世界科技可以被利用，人与人之间的博弈才是核心张力。',
     races: ['普通人', '变异体', '机械人', '辐射族'],
+  },
+  {
+    id: 'custom',
+    name: '自定义世界',
+    subtitle: '由你定义的世界',
+    description: '完全空白的世界观，通过世界书自行定义世界的一切规则、势力与设定。',
+    flavor: '这是一个由你书写的世界，一切皆有可能。请通过世界书添加关键词与设定条目，守密人将在叙事中参考这些规则。',
+    races: [],
   },
 ]
 

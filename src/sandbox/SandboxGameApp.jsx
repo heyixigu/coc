@@ -19,6 +19,7 @@ import {
   applyStateChangeFromGmReply,
   stripStateChangeSection,
 } from './sandboxStateChangeParser.js'
+import WorldbookEditor from '../worldbook/WorldbookEditor.jsx'
 import TimelineOverlay from './components/TimelineOverlay.jsx'
 import SandboxStatCard from './components/SandboxStatCard'
 import { SandboxLeftPanelTabs, SandboxRightPanelTabs } from './components/SandboxSidePanels.jsx'
@@ -52,6 +53,7 @@ const T = {
   none: '\u65e0',
   narrative: '\u53d9\u4e8b',
   timeline: '\u4e8b\u4ef6\u65f6\u95f4\u7ebf',
+  worldbook: '\u4e16\u754c\u4e66',
   keeper: '\u5b88\u5bc6\u4eba',
   system: '[\u7cfb\u7edf]',
   judging: '\u6b63\u5728\u5224\u5b9a\u68c0\u5b9a\u5e76\u6295\u9ab0\u2026\u2026',
@@ -193,6 +195,7 @@ export default function SandboxGameApp({
   const [eventIndex, setEventIndex] = useState(() => initial.eventIndex ?? 1)
   const [archiving, setArchiving] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
+  const [showWorldbook, setShowWorldbook] = useState(false)
   const [isExtracting, setIsExtracting] = useState(false)
   const [canUndo, setCanUndo] = useState(false)
   const [timelineEvents, setTimelineEvents] = useState(
@@ -1055,6 +1058,15 @@ export default function SandboxGameApp({
             >
               📜
             </button>
+            <button
+              type="button"
+              className="btn-header-secondary btn-touch sandbox-worldbook-btn"
+              aria-label={T.worldbook}
+              title={T.worldbook}
+              onClick={() => setShowWorldbook(true)}
+            >
+              📖
+            </button>
             {onResetStory ? (
               <button type="button" className="btn-reset btn-touch" onClick={onResetStory}>
                 {T.resetStory}
@@ -1147,6 +1159,15 @@ export default function SandboxGameApp({
         <button
           type="button"
           className="mobile-drawer-trigger btn-touch"
+          aria-label={T.worldbook}
+          title={T.worldbook}
+          onClick={() => setShowWorldbook(true)}
+        >
+          📖
+        </button>
+        <button
+          type="button"
+          className="mobile-drawer-trigger btn-touch"
           aria-label={T.rightPanel}
           title={T.rightPanel}
           aria-expanded={rightDrawerOpen}
@@ -1177,6 +1198,13 @@ export default function SandboxGameApp({
 
       {showTimeline ? (
         <TimelineOverlay events={timelineEvents} onClose={() => setShowTimeline(false)} />
+      ) : null}
+      {showWorldbook && worldFull ? (
+        <WorldbookEditor
+          slotIndex={slotIndex}
+          worldId={worldFull.id}
+          onClose={() => setShowWorldbook(false)}
+        />
       ) : null}
     </div>
   )

@@ -4,6 +4,7 @@ import {
   applyStateChangeFromGmReply,
   stripStateChangeSection,
 } from '../sandboxStateChangeParser.js'
+import { clearCustomWorldbook } from '../../worldbook/worldbookStorage.js'
 import {
   computeHpMpFromSkills,
   loadSandboxSlot,
@@ -60,6 +61,8 @@ export function finishSandboxPrologue({ character, world, opening, openingRaw })
   if (!slot) {
     throw new Error('未选择存档槽，无法保存沙盒序幕进度')
   }
+
+  clearCustomWorldbook(slot)
 
   const applied = loadSandboxSlot(slot)
   if (applied.character) {

@@ -193,6 +193,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
     setError('')
 
     const character = buildCharacter()
+    const userContent = buildSandboxOpeningUserMessage(character, selectedWorld)
     const systemText = buildSandboxGmPrompt(
       character,
       selectedWorld,
@@ -205,8 +206,9 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
       undefined,
       undefined,
       slotIndex,
+      userContent,
+      '',
     )
-    const userContent = buildSandboxOpeningUserMessage(character, selectedWorld)
 
     try {
       const result = await fetchValidatedSandboxGmReply({

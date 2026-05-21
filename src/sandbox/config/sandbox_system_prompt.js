@@ -1,5 +1,5 @@
 import { SANDBOX_SKILL_NAMES } from './sandbox_judge_prompt.js'
-import { SANDBOX_WORLD_DETAILS } from './sandbox_world_details.js'
+import { getWorldbookInject } from '../../worldbook/worldbookMatcher.js'
 
 /**
  * @typedef {import('../sandboxStorage.js').SandboxCharacter} SandboxCharacter
@@ -23,28 +23,6 @@ export const SANDBOX_PRE_ROLL_ADDENDUM = `【本轮检定】
 /**
  * @typedef {import('../sandboxStorage.js').SandboxArchivedEventEntry} SandboxArchivedEventEntry
  */
-
-/**
- * @param {import('./sandbox_world_details.js').SANDBOX_WORLD_DETAILS[keyof typeof SANDBOX_WORLD_DETAILS]} detail
- */
-function buildWorldDetailPrompt(detail) {
-  const classes = detail.socialClasses.map((c) => `${c.name}：${c.description}`).join('\n')
-  const names = `男性常见名：${detail.commonNames.male.join('、')}；女性常见名：${detail.commonNames.female.join('、')}`
-  return `
-【世界观细节参考——按需使用，不必每轮全部体现】
-称谓与话语：${detail.commonPhrases.titles}
-常用口头禅：${detail.commonPhrases.catchphrases}
-禁忌用语：${detail.commonPhrases.taboos}
-城市环境：${detail.environment.cityscape}
-常见场所：${detail.environment.locations}
-气候特征：${detail.environment.climate}
-建筑风格：${detail.environment.architecture}
-世界架构：${Object.values(detail.worldStructure).join('；')}
-社会阶级：
-${classes}
-NPC起名参考：${names}
-`
-}
 
 /**
  * @param {SandboxArchivedEventEntry[]} archivedEvents
@@ -224,7 +202,9 @@ ${body}`
  * @param {SandboxWorldState} [worldState]
  * @param {SandboxQuestState} [questState]
  * @param {SandboxNpcMemoryGraph} [relevantMemoryGraph]
- * @param {number | null} [slotIndex] 1-based，用于注入世界记忆
+ * @param {number | null} [slotIndex] 1-based，用于世界书与侧存储
+ * @param {string} [lastPlayerInput] 本轮或最近玩家输入，供世界书关键词扫描
+ * @param {string} [lastGmReply] 上一轮 GM 回复，供世界书关键词扫描
  */
 export function buildSandboxGmPrompt(
   character,
@@ -243,6 +223,8 @@ export function buildSandboxGmPrompt(
   questState = { quests: [] },
   relevantMemoryGraph = { nodes: [], edges: [] },
   slotIndex = null,
+  lastPlayerInput = '',
+  lastGmReply = '',
 ) {
   const items =
     character.items.length > 0 ? character.items.join('、') : '无'
@@ -256,8 +238,14 @@ HP：${character.hp}/${character.maxHp} MP：${character.mp}/${character.maxMp}
 物品：${items}
 `
 
-  const worldDetail = SANDBOX_WORLD_DETAILS[world.id]
-  const worldDetailPrompt = worldDetail ? buildWorldDetailPrompt(worldDetail) : ''
+  const scanText = `${lastPlayerInput} ${lastGmReply}`.trim()
+  const worldbookInject = world?.id
+    ? getWorldbookInject(
+        scanText || (world.id === 'custom' ? '开局' : ''),
+        world.id,
+        slotIndex,
+      )
+    : ''
   const npcContext = buildSandboxNpcContext(relevantNpcs)
   const companionContext = buildSandboxCompanionContext(companions)
   const factContext = buildSandboxFactContext(activeFacts)
@@ -269,7 +257,6 @@ HP：${character.hp}/${character.maxHp} MP：${character.mp}/${character.maxMp}
   const base = `【身份】
 你是沙盒跑团模式的守密人（GM / KP）。叙事风格须与当前世界观一致，语气沉浸、连贯。
 本局世界观：${world.name}（${world.subtitle}）
-${worldDetailPrompt}
 ${npcContext ? `${npcContext}\n` : ''}${companionContext ? `${companionContext}\n` : ''}
 【世界观铁律】
 你必须严格在上述世界观边界内进行叙事。以下行为是被明确禁止的：
@@ -413,8 +400,9 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
   const archiveCtx = buildSandboxArchivedEventsContext(archivedEvents)
   const body = archiveCtx ? `${base}\n\n${archiveCtx}` : base
 
-  return `${characterContext}
-${world.flavor}
+  return `${world.flavor}
+${worldbookInject}
+${characterContext}
 ${factContext ? `${factContext}\n` : ''}${timelineContext ? `${timelineContext}\n` : ''}${worldStateContext ? `${worldStateContext}\n` : ''}${questContext ? `${questContext}\n` : ''}${memoryContext ? `${memoryContext}\n` : ''}${body}`
 }
 

@@ -6,7 +6,7 @@
 
 > **纯前端文字跑团 SPA**（React 19 + Vite 8）：浏览器直连 DeepSeek `deepseek-v4-flash`（无后端）；**模型只写剧情与裁定叙述，1d100 永远由客户端生成**。
 >
-> 内含两种玩法：**主线 CoC**（固定人设何以惜顾 + 林知渺 + 克苏鲁民俗志）与 **沙盒模式**（玩家自建角色 + 自选世界观，五段 GM 格式）。
+> 内含两种玩法：**主线 CoC**（固定人设何以惜顾 + 林知渺 + 克苏鲁民俗志）与 **沙盒模式**（玩家自建角色 + 自选世界观，六段 GM 格式含机器可读 `【状态变更】`）。
 
 ---
 
@@ -17,15 +17,17 @@
 | 入口组件 | `GameApp.jsx` | `SandboxGameApp.jsx` |
 | 序幕 | `prologue/Prologue.jsx`（三剧本） | `sandbox/prologue/SandboxPrologue.jsx`（建角） |
 | 玩家角色 | 固定何以惜顾 | `SandboxCharacter` 自建 |
-| 同伴 | 林知渺（`partner` 数值 + GM `【林知渺】` 段） | 无固定同伴，NPC 写在 `【他人行为】` |
-| GM 格式 | **四段** | **五段** |
+| 同伴 | 林知渺（`partner` 数值 + GM `【林知渺】` 段） | `companions`（最多 2 名 active）；NPC 在 `【他人行为】` |
+| GM 格式 | **四段** | **六段**（展示五段 + `【状态变更】` JSON，入库前剥离） |
 | System Prompt | `config/system_prompt.js` `GM_SYSTEM_PROMPT` | `sandbox/config/sandbox_system_prompt.js` `buildSandboxGmPrompt(character, world)` |
 | 校验 | `validateGmReply.js` | `sandboxValidateGmReply.js` |
 | 玩家回合 | `playerTurn.js` | `sandboxPlayerTurn.js` |
 | 掷骰 | `dice.js` + `resolveTurnRolls.js` | `sandboxDice.js`（含连续失败保底） |
 | 裁判 | `judge_prompt.js` | `sandbox_judge_prompt.js` |
-| 存档 | `storage.js` 槽位 `coc-slot-1/2` | `sandboxStorage.js` 槽位 `sandbox-slot-*` |
-| 世界观 | `world_detail.js` 民国上海民俗 | `sandbox_worlds.js` + `sandbox_world_details.js` |
+| 存档 | `storage.js` 槽位 `coc-slot-1/2` | `sandboxStorage.js` 槽位 `sandbox-slot-*` + 侧存储（事实/NPC/世界/任务/时间线/记忆图） |
+| 状态写入 | `【当前状态】` 文本解析 | `【状态变更】` **代码解析** + `【当前状态】` 文本同步 UI |
+| 撤回 | 无 | 最近一轮 GM 前快照（`saveUndoSnapshot` / `restoreUndoSnapshot`） |
+| 世界观 | `world_detail.js` 民国上海民俗 | `sandbox_worlds.js` + `worldbook/` 关键词注入 |
 
 **共用**：`deepseek.js`、`gmTurn.js`（非流式 GM + 重试）、`skillJudge.js`、`typewriter.js`、裁判→预掷→GM 主流程。
 
@@ -102,7 +104,8 @@ flowchart TB
 
 | 角色 | Prompt 文件 | 输入 | 输出 | 何时调用 |
 |------|-------------|------|------|----------|
-| **守密人 GM** | 主线 `system_prompt.js`；沙盒 `buildSandboxGmPrompt(...)` | `messages` replay + 本轮 chain | 四段/五段中文 | Bootstrap、开场、每轮玩家行动后 |
+| **守密人 GM** | 主线 `system_prompt.js`；沙盒 `buildSandboxGmPrompt(...)` | `messages` replay + 本轮 chain | 四段 / 六段（含 JSON） | Bootstrap、开场、每轮玩家行动后 |
+| **沙盒后台提取** | `sandboxFactExtractor.js` | 剥离后的 GM 五段文本 | JSON：事实/时间线/记忆图 | GM 打字机并行，静默失败 |
 | **裁判 Judge** | 主线 `judge_prompt.js`；沙盒 `sandbox_judge_prompt.js` | 玩家行动文本 | `[{"skill":"…","value":N},…]` 或 `[]` | `playerTurn.js` / `sandboxPlayerTurn.js` 每轮开头 |
 | **逐轮摘要** | `summary_prompt.js`（user 侧短提示） | 单轮对话 exchange | 2~3 句 | 每轮成功结束后后台 `runTurnSummary` |
 | **滚动摘要** | `summary_prompt.js` `buildRollingSummarySystemPrompt` | 第 n–m 轮逐轮摘要或原文 | 一条 `isSummary` 消息替换旧段 | `playerTurnCount % 10 === 0`（队列串行） |
@@ -144,23 +147,43 @@ fetchValidatedGmReply (postChatNonStream)
 
 ---
 
-## 守密人（GM）输出协议 — 沙盒五段
+## 守密人（GM）输出协议 — 沙盒六段
 
-定义于 [`buildSandboxGmPrompt`](./src/sandbox/config/sandbox_system_prompt.js)，由 [`sandboxValidateGmReply.js`](./src/sandbox/sandboxValidateGmReply.js) 校验（同样走 `fetchValidatedGmReply`）。
+定义于 [`buildSandboxGmPrompt`](./src/sandbox/config/sandbox_system_prompt.js)，由 [`sandboxValidateGmReply.js`](./src/sandbox/sandboxValidateGmReply.js) 校验（同样走 `fetchValidatedSandboxGmReply`，失败静默重试 1 次）。
 
-### 每条回复必须且只能有五段（顺序固定）
+### 每条回复必须且只能有六段（顺序固定）
 
 1. **【场景】** — 环境与氛围；不替玩家发言
 2. **【主角行为】** — 本轮玩家行动在叙事中的展开（预掷骰须体现后果）
 3. **【他人行为】** — NPC/环境反应；无则写「无」
-4. **【当前状态】** — 两行：`{角色名} HP x/y MP a/b` + `物品：…`
+4. **【当前状态】** — 主角 + 伙伴 HP/MP/物品行（供人读；程序另读第六段）
 5. **【你可以：】** — 2~4 个可行动项
+6. **【状态变更】** — **严格 JSON**（NPC/任务/地点/环境/背包/同伴/玩家数值等）；无变化字段用 `[]` 或 `null`
 
-**世界观铁律**（prompt 内嵌）：不得引入克苏鲁/SAN/越界元素；叙事须符合所选世界（奇幻、古代东方等）。技能名为固定八项：战斗、交涉、感知、潜行、学识、意志、体魄等（见 `SANDBOX_SKILL_NAMES`）。
+**展示与存档**：`SandboxGameApp.presentGm` 在校验通过后先 [`applyStateChangeFromGmReply`](./src/sandbox/sandboxStateChangeParser.js)，再 [`stripStateChangeSection`](./src/sandbox/sandboxStateChangeParser.js) — 打字机与 `messages` **不含**第六段。
 
-玩家回合追加 `SANDBOX_PRE_ROLL_ADDENDUM`，逻辑同主线预掷。
+**世界观铁律**（prompt 内嵌）：不得引入克苏鲁/SAN/越界元素；技能名为固定八项（见 `SANDBOX_SKILL_NAMES`）。
 
-每轮 chain 首部可注入 [`buildSandboxContextMessage`](./src/sandbox/sandboxContextInject.js)（角色快照，持久化为 `role: 'system'` 或仅 API 链 — 以 `sandboxPlayerTurn.js` 为准）。
+玩家回合追加 `SANDBOX_PRE_ROLL_ADDENDUM`（须写完**含【状态变更】的完整六段**），逻辑同主线预掷。
+
+每轮 chain 可注入 [`buildSandboxContextMessage`](./src/sandbox/sandboxContextInject.js)（角色快照）；GM system 另注入匹配 NPC、activeFacts、时间线、worldState、questState、记忆子图等（见 `sandboxPlayerTurn.js`）。
+
+### GM 后双轨状态更新
+
+```mermaid
+sequenceDiagram
+  participant GM as GM 全文
+  participant P as sandboxStateChangeParser
+  participant UI as 打字机/ messages
+  participant X as sandboxFactExtractor
+
+  GM->>P: applyStateChangeFromGmReply（同步）
+  GM->>UI: stripStateChangeSection
+  UI->>X: 剥离后文本（异步）
+  Note over X: 仅 newFacts / updatedFacts / timelineEvent / memoryGraphUpdates
+```
+
+NPC 档案、任务、世界状态、背包、同伴数值等**不再**由 `sandboxFactExtractor` 提取，避免与第六段重复。
 
 ---
 
@@ -187,7 +210,11 @@ sequenceDiagram
       PT->>App: system 多行 ROLL_RESULT + diceLog
     end
     PT->>GM: GM prompt + PRE_ROLL_ADDENDUM + chain
-    GM-->>App: 校验通过的全文 → 打字机
+    GM-->>App: 校验通过的全文
+    opt 沙盒
+      App->>App: applyStateChange + strip → 打字机
+      App->>App: extractAllStateUpdates（并行）
+    end
   end
 ```
 
@@ -252,7 +279,7 @@ snap（历史 messages，含 isSummary / 封档后的切片）
 
 ### 沙盒序幕 [`sandbox/prologue/SandboxPrologue.jsx`](./src/sandbox/prologue/SandboxPrologue.jsx)
 
-建角（姓名、性别、背景、技能点、世界观）→ [`finishSandboxPrologue.js`](./src/sandbox/prologue/finishSandboxPrologue.js) 写入槽位 → `SandboxGameApp` 用 `buildSandboxOpeningUserMessage` 生成开场五段。
+建角（姓名、性别、背景、技能点、世界观）→ 非流式开场 **六段**（`SandboxPrologue` 打字机展示剥离后文本）→ [`finishSandboxPrologue.js`](./src/sandbox/prologue/finishSandboxPrologue.js) 用 `openingRaw` 应用 `【状态变更】` 后写入槽位。
 
 ---
 
@@ -273,14 +300,25 @@ snap（历史 messages，含 isSummary / 封档后的切片）
 
 ### 沙盒 `SandboxGameState`（`sandbox-slot-*`）
 
+主槽字段 + 侧存储键（`sandboxStorage.js`）：
+
 ```ts
+// 主槽 assembleSandboxState
 {
-  character, world, messages[], diceLog[],
+  character, world, companions[], playerInventory,
+  messages[], diceLog[],
   playerTurnCount, turnSummaries[], archivedEvents[], eventIndex,
-  consecutiveFails,  // 掷骰保底
-  feedback?: 'like' | 'dislike' | null  // 可选反馈注入 Judge/GM
+  consecutiveFails, prologueComplete,
+  __version  // 迁移版本，见 sandboxMigration.js
 }
+// 侧存储（按槽分键）
+// npc-archive, fact-database, event-timeline, world-state,
+// quest-state, npc-memory-graph, undo-snapshot
 ```
+
+**加载时迁移**：[`sandboxMigration.js`](./src/sandbox/sandboxMigration.js) 在 `loadSandboxSlot` / `loadNpcArchive` / `loadFactDatabase` / `loadEventTimeline` / `loadWorldState` 后补全缺省字段（`CURRENT_VERSION` 递增时加分支）。
+
+**撤回**：发送前（`playerTurnCount > 0`）`saveUndoSnapshot`；八合一结束后 `canUndo`；`restoreUndoSnapshot` 恢复主槽 + 侧存储并填回输入框（第一轮无撤回按钮）。
 
 ### UI 逻辑视图（两模式类似）
 
@@ -303,8 +341,12 @@ snap（历史 messages，含 isSummary / 封档后的切片）
 | HTTP / SSE / 映射 | [`src/deepseek.js`](./src/deepseek.js) |
 | 主线 GM 人设 | [`src/config/system_prompt.js`](./src/config/system_prompt.js) |
 | 沙盒 GM 人设 | [`src/sandbox/config/sandbox_system_prompt.js`](./src/sandbox/config/sandbox_system_prompt.js) |
+| 沙盒【状态变更】解析 | [`sandboxStateChangeParser.js`](./src/sandbox/sandboxStateChangeParser.js), [`extractStateChangeJson`](./src/sandbox/sandboxValidateGmReply.js) |
+| 沙盒【当前状态】文本解析 | [`sandboxParseGmStatus.js`](./src/sandbox/sandboxParseGmStatus.js) |
+| 沙盒后台提取 | [`sandboxFactExtractor.js`](./src/sandbox/sandboxFactExtractor.js) |
+| 沙盒存档迁移 | [`sandboxMigration.js`](./src/sandbox/sandboxMigration.js) |
 | 角色卡 | [`src/config/characters.js`](./src/config/characters.js) |
-| 状态/物品解析 | [`parseGmStatus.js`](./src/parseGmStatus.js), [`parseGmItems.js`](./src/parseGmItems.js), [`syncRosterFromGm.js`](./src/syncRosterFromGm.js) |
+| 主线状态/物品解析 | [`parseGmStatus.js`](./src/parseGmStatus.js), [`parseGmItems.js`](./src/parseGmItems.js), [`syncRosterFromGm.js`](./src/syncRosterFromGm.js) |
 | 滚动/逐轮摘要 | [`rollingSummary.js`](./src/rollingSummary.js), [`turnSummary.js`](./src/turnSummary.js) |
 | 事件封档 | [`archiveEvent.js`](./src/archiveEvent.js), [`sandboxArchiveEvent.js`](./src/sandbox/sandboxArchiveEvent.js) |
 | 存档 | [`storage.js`](./src/storage.js), [`sandboxStorage.js`](./src/sandbox/sandboxStorage.js) |
@@ -318,14 +360,16 @@ snap（历史 messages，含 isSummary / 封档后的切片）
 
 1. **不要让模型报骰点** — 随机数只在 `dice.js` / `sandboxDice.js`
 2. **不要把 `partner` 当玩家账号**（仅主线）
-3. **改 GM 格式** — 主线同步 `system_prompt.js` + `validateGmReply.js` + 解析器；沙盒同步 `sandbox_system_prompt.js` + `sandboxValidateGmReply.js` + 沙盒状态解析
-4. **虚拟 user**（第一幕、开场）在 API chain 里存在，通常**不写入** `messages` 列表
-5. **主流程已是非流式 GM** — 不要误接 `gmRollLoop`，除非明确恢复流式 `[ROLL]` 链
-6. **沙盒勿引入 CoC 机制** — 世界观边界写死在 `buildSandboxGmPrompt`，勿在代码里硬编码克苏鲁元素到沙盒 UI
-7. **封档/摘要消息** — `isSummary` / `isArchive` 参与切片与滚动摘要范围，改动消息结构时需检查 `getTurnMessageRange`、`getArchiveMessageSlice`
+3. **改 GM 格式** — 主线同步 `system_prompt.js` + `validateGmReply.js` + 解析器；沙盒同步 `sandbox_system_prompt.js` + `sandboxValidateGmReply.js` + `sandboxStateChangeParser.js` + `sandboxParseGmStatus.js`
+4. **改沙盒侧存储字段** — 同步 `sandboxMigration.js`（`CURRENT_VERSION++`）与 `sandboxStorage` normalize
+5. **虚拟 user**（第一幕、开场）在 API chain 里存在，通常**不写入** `messages` 列表
+6. **主流程已是非流式 GM** — 不要误接 `gmRollLoop`，除非明确恢复流式 `[ROLL]` 链
+7. **沙盒勿引入 CoC 机制** — 世界观边界写死在 `buildSandboxGmPrompt`
+8. **【状态变更】勿进聊天历史** — 落盘与 `extractAllStateUpdates` 使用剥离后文本
+9. **封档/摘要消息** — `isSummary` / `isArchive` 参与切片与滚动摘要范围，改动消息结构时需检查 `getTurnMessageRange`、`getArchiveMessageSlice`
 
 ---
 
 ## 一句话总结
 
-> 固定 Prompt + 角色卡/世界观驱动 DeepSeek 扮演守密人；**裁判预掷骰 → 非流式 GM → 格式校验 → 打字机** 实现「模型写剧情、程序写随机数」；主线四段含林知渺，沙盒五段含自建主角；逐轮摘要 + 每 10 轮滚动摘要 + 可选事件封档控制长对话上下文。
+> 固定 Prompt + 角色卡/世界观驱动 DeepSeek 扮演守密人；**裁判预掷骰 → 非流式 GM → 格式校验 → 打字机** 实现「模型写剧情、程序写随机数」；主线四段含林知渺，沙盒六段含 JSON 状态段由程序落库；沙盒另靠事实库/时间线/记忆图后台提取与可选撤回；逐轮摘要 + 每 10 轮滚动摘要 + 可选事件封档控制长对话上下文。
