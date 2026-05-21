@@ -1,4 +1,5 @@
 import { SANDBOX_SKILL_NAMES } from './sandbox_judge_prompt.js'
+import { getWorldById } from './sandbox_worlds.js'
 import { getWorldbookInject } from '../../worldbook/worldbookMatcher.js'
 
 /**
@@ -229,9 +230,32 @@ export function buildSandboxGmPrompt(
   const items =
     character.items.length > 0 ? character.items.join('、') : '无'
 
+  const fullWorld = getWorldById(world.id) ?? world
+  const regionInfo = fullWorld.regions?.find((r) => r.id === character.regionId)
+  const raceInfo = fullWorld.raceOptions?.find((r) => r.id === character.raceId)
+  const regionRaceBlock =
+    regionInfo || raceInfo || character.raceName
+      ? `
+【地区与种族——开局设定，须体现在叙事与NPC态度中】
+角色种族：${character.raceName ?? '人类'}
+${raceInfo ? `种族特点：${raceInfo.npcBaseAttitude}` : ''}
+初始地区：${regionInfo?.name ?? ''}
+开局场景参考：${regionInfo?.openingScene ?? ''}
+开局优势：${regionInfo?.advantage ?? ''}
+当前地区统治势力：${regionInfo?.rulingFaction ?? ''}
+当前地区各种族态度：${
+          regionInfo
+            ? Object.entries(regionInfo.raceAttitudes)
+                .map(([r, a]) => `${r}:${a}`)
+                .join('，')
+            : ''
+        }`
+      : ''
+
   const characterContext = `【主角档案——始终参考，不得遗忘】
 姓名：${character.name}
 性别：${character.gender}
+${regionRaceBlock}
 背景：${character.background}
 技能：战斗${character.skills.战斗 ?? 5} 交涉${character.skills.交涉 ?? 5} 感知${character.skills.感知 ?? 5} 潜行${character.skills.潜行 ?? 5} 学识${character.skills.学识 ?? 5} 意志${character.skills.意志 ?? 5} 体魄${character.skills.体魄 ?? 5}
 HP：${character.hp}/${character.maxHp} MP：${character.mp}/${character.maxMp}

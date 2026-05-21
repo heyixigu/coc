@@ -115,8 +115,11 @@ function defaultSkills() {
 export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavigateBack }) {
   const saved = useMemo(() => loadSandboxSlot(slotIndex), [slotIndex])
 
-  const [step, setStep] = useState(/** @type {1 | 2 | 3} */ (1))
+  const [step, setStep] = useState(/** @type {1 | 1.5 | 2 | 3} */ (1))
   const [worldId, setWorldId] = useState(() => saved.world?.id ?? SANDBOX_WORLDS[0].id)
+  const [regionId, setRegionId] = useState(() => saved.character?.regionId ?? null)
+  const [expandedRegion, setExpandedRegion] = useState(/** @type {string | null} */ (null))
+  const [raceId, setRaceId] = useState(() => saved.character?.raceId ?? null)
   const [name, setName] = useState(() => saved.character?.name ?? '')
   const [gender, setGender] = useState(
     /** @type {SandboxGender} */ (saved.character?.gender ?? '\u5176\u4ed6'),
@@ -170,11 +173,28 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
       mp,
       maxMp,
       items: saved.character?.items?.length ? [...saved.character.items] : [],
+      regionId: regionId ?? null,
+      raceId: raceId ?? null,
+      raceName: selectedWorld?.raceOptions?.find((r) => r.id === raceId)?.name ?? null,
     }
-  }, [name, gender, background, skills, hpMp, saved.character?.items])
+  }, [
+    name,
+    gender,
+    background,
+    skills,
+    hpMp,
+    saved.character?.items,
+    regionId,
+    raceId,
+    selectedWorld,
+  ])
 
   const canStep2 = !!selectedWorld
-  const canStep3 = name.trim().length > 0 && skillSum === SKILL_TOTAL && !!selectedWorld
+  const canStep3 =
+    name.trim().length > 0 &&
+    skillSum === SKILL_TOTAL &&
+    !!selectedWorld &&
+    (worldId !== 'fantasy' || (!!regionId && !!raceId))
 
   const generateOpening = useCallback(async () => {
     if (!selectedWorld || !canStep3) return
@@ -293,6 +313,11 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                   onClick={() => {
                     setWorldId(w.id)
                     setSelectedPresetId(null)
+                    if (w.id !== 'fantasy') {
+                      setRegionId(null)
+                      setRaceId(null)
+                      setExpandedRegion(null)
+                    }
                   }}
                 >
                   <h3 className="sandbox-world-card-title">{w.name}</h3>
@@ -324,7 +349,13 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
                 type="button"
                 className="prologue-btn prologue-btn-primary"
                 disabled={!canStep2}
-                onClick={() => setStep(2)}
+                onClick={() => {
+                  if (worldId === 'fantasy') {
+                    setStep(1.5)
+                  } else {
+                    setStep(2)
+                  }
+                }}
               >
                 {'\u4e0b\u4e00\u6b65'}
               </button>
@@ -332,10 +363,132 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
           </>
         ) : null}
 
+        {step === 1.5 && selectedWorld?.regions ? (
+          <div className="sandbox-prologue-step">
+            <h2 className="sandbox-step-title">选择初始地区</h2>
+            <p className="sandbox-step-hint">
+              你将从这里开始你的冒险，地区将影响开局场景和NPC的初始态度
+            </p>
+
+            <div className="sandbox-regions-list">
+              {selectedWorld.regions.map((region) => (
+                <div
+                  key={region.id}
+                  className={`sandbox-region-card${regionId === region.id ? ' selected' : ''}`}
+                >
+                  <div
+                    className="sandbox-region-card-header"
+                    onClick={() => setRegionId(region.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setRegionId(region.id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="sandbox-region-card-main">
+                      <span className="sandbox-region-name">{region.name}</span>
+                      <span className="sandbox-region-subtitle">{region.subtitle}</span>
+                      <span className="sandbox-region-faction">
+                        统治势力：{region.rulingFaction}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="sandbox-region-expand-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setExpandedRegion(
+                          expandedRegion === region.id ? null : region.id,
+                        )
+                      }}
+                    >
+                      {expandedRegion === region.id ? '收起' : '详情'}
+                    </button>
+                  </div>
+
+                  {expandedRegion === region.id ? (
+                    <div className="sandbox-region-detail">
+                      <p className="sandbox-region-desc">{region.description}</p>
+                      <div className="sandbox-region-scene">
+                        <span className="sandbox-region-scene-label">开局场景</span>
+                        <p>{region.openingScene}</p>
+                      </div>
+                      <div className="sandbox-region-advantage">
+                        <span className="sandbox-region-advantage-label">开局优势</span>
+                        <p>{region.advantage}</p>
+                      </div>
+                      <div className="sandbox-region-attitudes">
+                        <span className="sandbox-region-attitudes-label">
+                          各种族初始态度
+                        </span>
+                        <div className="sandbox-region-attitudes-grid">
+                          {Object.entries(region.raceAttitudes).map(([race, attitude]) => (
+                            <div key={race} className="sandbox-region-attitude-row">
+                              <span className="attitude-race">{race}</span>
+                              <span className="attitude-value">{attitude}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <section className="prologue-footer">
+              <button type="button" className="prologue-btn" onClick={() => setStep(1)}>
+                上一步
+              </button>
+              <button
+                type="button"
+                className="prologue-btn prologue-btn-primary"
+                disabled={!regionId}
+                onClick={() => setStep(2)}
+              >
+                下一步
+              </button>
+            </section>
+          </div>
+        ) : null}
+
         {step === 2 ? (
           <>
             <h2 className="sandbox-step-title">{'\u521b\u5efa\u89d2\u8272'}</h2>
             <section className="sandbox-char-form">
+              {worldId === 'fantasy' && selectedWorld.raceOptions ? (
+                <div className="sandbox-race-section">
+                  <span className="sandbox-char-field-label">种族</span>
+                  <div className="sandbox-race-list">
+                    {selectedWorld.raceOptions.map((race) => (
+                      <div
+                        key={race.id}
+                        className={`sandbox-race-card${raceId === race.id ? ' selected' : ''}`}
+                        onClick={() => setRaceId(race.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setRaceId(race.id)
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="sandbox-race-card-header">
+                          <span className="sandbox-race-name">{race.name}</span>
+                        </div>
+                        <p className="sandbox-race-desc">{race.description}</p>
+                        {raceId === race.id ? (
+                          <p className="sandbox-race-attitude">{race.npcBaseAttitude}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <label className="sandbox-char-field">
                 <span>{'\u59d3\u540d'}</span>
                 <input
@@ -426,7 +579,11 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
               </section>
             </section>
             <section className="prologue-footer">
-              <button type="button" className="prologue-btn" onClick={() => setStep(1)}>
+              <button
+                type="button"
+                className="prologue-btn"
+                onClick={() => setStep(worldId === 'fantasy' ? 1.5 : 1)}
+              >
                 {'\u4e0a\u4e00\u6b65'}
               </button>
               <button

@@ -195,8 +195,10 @@ const SANDBOX_SLOT_COUNT = 4
  *   mp: number,
  *   maxMp: number,
  *   items: string[],
+ *   regionId?: string | null,
+ *   raceId?: string | null,
+ *   raceName?: string | null,
  * }} SandboxCharacter
- */
 
 /**
  * @typedef {{
@@ -345,6 +347,10 @@ function normalizeCharacter(raw) {
   const computed = computeHpMpFromSkills(skills)
   const items = normalizeItemList(o.items)
 
+  const regionId = typeof o.regionId === 'string' && o.regionId.trim() ? o.regionId.trim() : null
+  const raceId = typeof o.raceId === 'string' && o.raceId.trim() ? o.raceId.trim() : null
+  const raceName = typeof o.raceName === 'string' && o.raceName.trim() ? o.raceName.trim() : null
+
   return {
     name,
     gender,
@@ -355,6 +361,9 @@ function normalizeCharacter(raw) {
     hp: Number.isFinite(hp) ? Math.min(999, Math.max(0, hp)) : computed.hp,
     mp: Number.isFinite(mp) ? Math.min(999, Math.max(0, mp)) : computed.mp,
     items,
+    regionId,
+    raceId,
+    raceName,
   }
 }
 

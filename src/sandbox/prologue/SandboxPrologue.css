@@ -286,3 +286,182 @@
 .sandbox-skill-btn-lg:disabled {
   opacity: 0.3;
 }
+
+.sandbox-step-hint {
+  font-size: 13px;
+  color: #8a7a5a;
+  line-height: 1.5;
+  margin: 0 0 12px;
+  max-width: 36rem;
+}
+
+.sandbox-char-field-label {
+  font-size: 13px;
+  color: #a89060;
+  display: block;
+  margin-bottom: 8px;
+}
+
+/* 地区选择 */
+.sandbox-regions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  max-width: 36rem;
+  width: 100%;
+}
+
+.sandbox-region-card {
+  border: 1px solid rgba(168, 144, 96, 0.25);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.sandbox-region-card.selected {
+  border-color: #a89060;
+}
+
+.sandbox-region-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sandbox-region-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sandbox-region-name {
+  font-size: 15px;
+  font-weight: bold;
+  color: #e8d5a0;
+}
+
+.sandbox-region-subtitle {
+  font-size: 12px;
+  color: #a89060;
+}
+
+.sandbox-region-faction {
+  font-size: 11px;
+  color: #6a5a3a;
+}
+
+.sandbox-region-expand-btn {
+  font-size: 11px;
+  color: #a89060;
+  background: transparent;
+  border: 1px solid rgba(168, 144, 96, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sandbox-region-detail {
+  padding: 12px;
+  border-top: 1px solid rgba(168, 144, 96, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sandbox-region-desc {
+  font-size: 13px;
+  color: #c8b080;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.sandbox-region-scene-label,
+.sandbox-region-advantage-label,
+.sandbox-region-attitudes-label {
+  font-size: 11px;
+  color: #a89060;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.sandbox-region-scene p,
+.sandbox-region-advantage p {
+  font-size: 12px;
+  color: #8a7a5a;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.sandbox-region-attitudes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.sandbox-region-attitude-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.attitude-race {
+  color: #8a7a5a;
+}
+
+.attitude-value {
+  color: #c8b080;
+}
+
+/* 种族选择 */
+.sandbox-race-section {
+  margin-bottom: 16px;
+}
+
+.sandbox-race-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sandbox-race-card {
+  border: 1px solid rgba(168, 144, 96, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.sandbox-race-card.selected {
+  border-color: #a89060;
+  background: rgba(168, 144, 96, 0.08);
+}
+
+.sandbox-race-name {
+  font-size: 14px;
+  font-weight: bold;
+  color: #e8d5a0;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.sandbox-race-desc {
+  font-size: 12px;
+  color: #8a7a5a;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.sandbox-race-attitude {
+  font-size: 11px;
+  color: #a89060;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(168, 144, 96, 0.2);
+  line-height: 1.5;
+}
