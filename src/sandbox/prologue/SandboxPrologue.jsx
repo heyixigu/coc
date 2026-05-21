@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { SANDBOX_WORLDS, getWorldById } from '../config/sandbox_worlds.js'
 import {
   buildSandboxGmPrompt,
   buildSandboxOpeningUserMessage,
 } from '../config/sandbox_system_prompt.js'
 import { fetchValidatedSandboxGmReply } from '../sandboxGmTurn.js'
+import { stripStateChangeSection } from '../sandboxStateChangeParser.js'
 import { runSandboxTypewriter } from '../sandboxTypewriter.js'
 import { computeHpMpFromSkills, loadSandboxSlot } from '../sandboxStorage.js'
 import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
@@ -127,6 +128,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
   const [selectedPresetId, setSelectedPresetId] = useState(null)
 
   const [openingText, setOpeningText] = useState('')
+  const openingRawRef = useRef('')
   const [openingLoading, setOpeningLoading] = useState(false)
   const [openingReady, setOpeningReady] = useState(false)
   const [entering, setEntering] = useState(false)
@@ -229,10 +231,12 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
         return
       }
 
-      setOpeningText(result.text)
+      const displayOpening = stripStateChangeSection(result.text)
+      openingRawRef.current = result.text
+      setOpeningText(displayOpening)
       setOpeningReady(false)
       await runSandboxTypewriter({
-        text: result.text,
+        text: displayOpening,
         onUpdate: setOpeningText,
       })
       setOpeningReady(true)
@@ -262,6 +266,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
           flavor: selectedWorld.flavor,
         },
         opening: openingText.trim(),
+        openingRaw: openingRawRef.current,
       })
       onComplete()
     } catch (e) {

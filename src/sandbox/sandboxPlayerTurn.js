@@ -84,7 +84,9 @@ export function resolveSandboxCheckValues(checks, character, companions) {
  * @param {(opts: object) => Promise<boolean>} [o.onArchiveEvent]
  * @param {number} [o.slotIndex] 1-based，用于 NPC 档案读写
  * @param {number} [o.factTurn] 写入事实库时的轮次（通常为 playerTurnCount+1）
- * @param {() => void} [o.onExtractComplete] 事实/时间线提取成功后回调
+ * @param {() => void} [o.onExtractComplete] 八合一提取成功且有变更时回调
+ * @param {() => void} [o.onExtractStart] 八合一提取开始时回调
+ * @param {() => void} [o.onExtractFinished] 八合一提取结束（成功/失败/无变更）时回调
  * @param {boolean} [o.regenerate] 重新生成：提取前先回滚本轮后台状态
  */
 export async function runSandboxPlayerTurn({
@@ -107,6 +109,8 @@ export async function runSandboxPlayerTurn({
   slotIndex,
   factTurn = 0,
   onExtractComplete,
+  onExtractStart,
+  onExtractFinished,
   regenerate = false,
 }) {
   const key = apiKey.trim()
@@ -232,14 +236,19 @@ export async function runSandboxPlayerTurn({
   const onGmComplete =
     slotIndex != null && Number.isFinite(slotIndex)
       ? (gmReply) => {
-          extractAllStateUpdates({
+          if (typeof onExtractStart === 'function') onExtractStart()
+          void extractAllStateUpdates({
             apiKey: key,
             gmReply,
             currentTurn: factTurn,
             slotIndex,
             onComplete: onExtractComplete,
             rollbackBeforeExtract: regenerate,
-          }).catch(() => {})
+          })
+            .catch(() => {})
+            .finally(() => {
+              if (typeof onExtractFinished === 'function') onExtractFinished()
+            })
         }
       : undefined
 
@@ -253,5 +262,6 @@ export async function runSandboxPlayerTurn({
     characterName: character.name,
     feedback,
     onGmComplete,
+    factTurn,
   })
 }

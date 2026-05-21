@@ -1,5 +1,12 @@
 import { exportCocSlot, importCocSlot } from '../storage.js'
 import { SANDBOX_SKILL_NAMES } from './config/sandbox_judge_prompt.js'
+import {
+  migrateSandboxState,
+  migrateNpcArchive,
+  migrateFactDatabase,
+  migrateEventTimeline,
+  migrateWorldState,
+} from './sandboxMigration.js'
 
 const SANDBOX_SLOT_COUNT = 4
 
@@ -212,6 +219,7 @@ const SANDBOX_SLOT_COUNT = 4
  *   eventIndex: number,
  *   companions: SandboxCompanion[],
  *   playerInventory: SandboxPlayerInventory,
+ *   __version?: number,
  * }} SandboxState
  */
 
@@ -612,7 +620,7 @@ function normalizeNpcArchive(raw) {
 /** @param {number} slotIndex 1-based @returns {SandboxNpcArchive} */
 export function loadNpcArchive(slotIndex) {
   const raw = readJsonKey(getSandboxSlotKey(slotIndex, NPC_ARCHIVE_FIELD))
-  return normalizeNpcArchive(raw)
+  return migrateNpcArchive(normalizeNpcArchive(raw))
 }
 
 /** @param {number} slotIndex 1-based @param {SandboxNpcArchive} archive */
@@ -731,7 +739,7 @@ function normalizeFactDatabase(raw) {
 /** @param {number} slotIndex 1-based @returns {SandboxFactDatabase} */
 export function loadFactDatabase(slotIndex) {
   const raw = readJsonKey(getSandboxSlotKey(slotIndex, FACT_DATABASE_FIELD))
-  return normalizeFactDatabase(raw)
+  return migrateFactDatabase(normalizeFactDatabase(raw))
 }
 
 /** @param {number} slotIndex 1-based @param {SandboxFactDatabase} database */
@@ -845,7 +853,7 @@ function normalizeEventTimeline(raw) {
 /** @param {number} slotIndex 1-based @returns {SandboxEventTimeline} */
 export function loadEventTimeline(slotIndex) {
   const raw = readJsonKey(getSandboxSlotKey(slotIndex, EVENT_TIMELINE_FIELD))
-  return normalizeEventTimeline(raw)
+  return migrateEventTimeline(normalizeEventTimeline(raw))
 }
 
 /** @param {number} slotIndex 1-based @param {SandboxEventTimeline} timeline */
@@ -1114,7 +1122,7 @@ function normalizeWorldState(raw) {
 /** @param {number} slotIndex 1-based @returns {SandboxWorldState} */
 export function loadWorldState(slotIndex) {
   const raw = readJsonKey(getSandboxSlotKey(slotIndex, WORLD_STATE_FIELD))
-  return normalizeWorldState(raw)
+  return migrateWorldState(normalizeWorldState(raw))
 }
 
 /** @param {number} slotIndex 1-based @param {SandboxWorldState} worldState */
@@ -1462,6 +1470,7 @@ function removeSandboxSlotKeys(slotIndex) {
       /* */
     }
   }
+  clearUndoSnapshot(slotIndex)
 }
 
 /** 已移除的地图 / 世界记忆模块遗留 localStorage 字段 */
@@ -1608,7 +1617,83 @@ export function listSandboxSlots() {
 
 /** @param {number} slotIndex 1-based */
 export function loadSandboxSlot(slotIndex) {
-  return assembleSandboxState(slotIndex)
+  return migrateSandboxState(assembleSandboxState(slotIndex))
+}
+
+const UNDO_SNAPSHOT_FIELD = 'undo-snapshot'
+
+/** @param {number} slotIndex 1-based */
+export function saveUndoSnapshot(slotIndex) {
+  const slot = loadSandboxSlot(slotIndex)
+  if (!slot) return
+  try {
+    writeJsonKey(getSandboxSlotKey(slotIndex, UNDO_SNAPSHOT_FIELD), {
+      messages: slot.messages,
+      playerTurnCount: slot.playerTurnCount,
+      consecutiveFails: slot.consecutiveFails,
+      factDatabase: loadFactDatabase(slotIndex),
+      eventTimeline: loadEventTimeline(slotIndex),
+      npcArchive: loadNpcArchive(slotIndex),
+      worldState: loadWorldState(slotIndex),
+      questState: loadQuestState(slotIndex),
+      npcMemoryGraph: loadNpcMemoryGraph(slotIndex),
+      lastPlayerMessage:
+        slot.messages.filter((m) => m.role === 'player').slice(-1)[0]?.content ?? '',
+      snapshotAt: Date.now(),
+    })
+  } catch {
+    /* */
+  }
+}
+
+/** @param {number} slotIndex 1-based */
+export function loadUndoSnapshot(slotIndex) {
+  return readJsonKey(getSandboxSlotKey(slotIndex, UNDO_SNAPSHOT_FIELD))
+}
+
+/** @param {number} slotIndex 1-based */
+export function clearUndoSnapshot(slotIndex) {
+  try {
+    localStorage.removeItem(getSandboxSlotKey(slotIndex, UNDO_SNAPSHOT_FIELD))
+  } catch {
+    /* */
+  }
+}
+
+/**
+ * @param {number} slotIndex 1-based
+ * @returns {string | null} 恢复后填回输入框的玩家消息
+ */
+export function restoreUndoSnapshot(slotIndex) {
+  const snapshot = loadUndoSnapshot(slotIndex)
+  if (!snapshot || typeof snapshot !== 'object') return null
+
+  try {
+    const slot = loadSandboxSlot(slotIndex)
+    saveSandboxSlot(slotIndex, {
+      ...slot,
+      messages: Array.isArray(snapshot.messages) ? snapshot.messages : slot.messages,
+      playerTurnCount:
+        typeof snapshot.playerTurnCount === 'number' ? snapshot.playerTurnCount : slot.playerTurnCount,
+      consecutiveFails:
+        typeof snapshot.consecutiveFails === 'number'
+          ? snapshot.consecutiveFails
+          : slot.consecutiveFails,
+    })
+
+    if (snapshot.factDatabase) saveFactDatabase(slotIndex, snapshot.factDatabase)
+    if (snapshot.eventTimeline) saveEventTimeline(slotIndex, snapshot.eventTimeline)
+    if (snapshot.npcArchive) saveNpcArchive(slotIndex, snapshot.npcArchive)
+    if (snapshot.worldState) saveWorldState(slotIndex, snapshot.worldState)
+    if (snapshot.questState) saveQuestState(slotIndex, snapshot.questState)
+    if (snapshot.npcMemoryGraph) saveNpcMemoryGraph(slotIndex, snapshot.npcMemoryGraph)
+
+    clearUndoSnapshot(slotIndex)
+
+    return typeof snapshot.lastPlayerMessage === 'string' ? snapshot.lastPlayerMessage : ''
+  } catch {
+    return null
+  }
 }
 
 /** @param {number} slotIndex 1-based @param {SandboxState} gameState */

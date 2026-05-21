@@ -15,6 +15,10 @@ import { rollbackSandboxExtractForTurn } from './sandboxExtractRollback.js'
 import { runSandboxRollingSummary } from './sandboxRollingSummary.js'
 import { runSandboxTurnSummary } from './sandboxTurnSummary.js'
 import { runSandboxTypewriter } from './sandboxTypewriter.js'
+import {
+  applyStateChangeFromGmReply,
+  stripStateChangeSection,
+} from './sandboxStateChangeParser.js'
 import TimelineOverlay from './components/TimelineOverlay.jsx'
 import SandboxStatCard from './components/SandboxStatCard'
 import { SandboxLeftPanelTabs, SandboxRightPanelTabs } from './components/SandboxSidePanels.jsx'
@@ -25,7 +29,9 @@ import {
   loadQuestState,
   loadSandboxSlot,
   loadWorldState,
+  restoreUndoSnapshot,
   saveSandboxSlot,
+  saveUndoSnapshot,
 } from './sandboxStorage.js'
 import './SandboxGameApp.css'
 
@@ -187,6 +193,8 @@ export default function SandboxGameApp({
   const [eventIndex, setEventIndex] = useState(() => initial.eventIndex ?? 1)
   const [archiving, setArchiving] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
+  const [isExtracting, setIsExtracting] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
   const [timelineEvents, setTimelineEvents] = useState(
     () => loadEventTimeline(slotIndex).events,
   )
@@ -393,6 +401,7 @@ export default function SandboxGameApp({
       signal,
       feedback = null,
       onGmComplete,
+      factTurn = 0,
     }) => {
       setGmFormatWarning(false)
       setGmUiPhase('loading')
@@ -409,9 +418,16 @@ export default function SandboxGameApp({
         setGmFormatWarning(true)
         return false
       }
-      const gmText = result.text
+      const rawGmReply = result.text
 
-      applyCharacterFromGm(gmText)
+      if (slotIndex != null && Number.isFinite(slotIndex)) {
+        applyStateChangeFromGmReply(rawGmReply, slotIndex, factTurn)
+        refreshExtractedState()
+      }
+
+      const displayText = stripStateChangeSection(rawGmReply)
+
+      applyCharacterFromGm(displayText)
       setGmUiPhase('typing')
 
       const gmPlaceholder = { id: gmId, role: 'gm', content: '', ts: gmTs }
@@ -419,12 +435,12 @@ export default function SandboxGameApp({
       setMessages(withGmPlaceholder)
 
       if (typeof onGmComplete === 'function') {
-        onGmComplete(gmText)
+        onGmComplete(displayText)
       }
 
       try {
         await runSandboxTypewriter({
-          text: gmText,
+          text: displayText,
           signal,
           onUpdate: (partial) => {
             setMessages(
@@ -441,14 +457,14 @@ export default function SandboxGameApp({
       }
 
       const finalMessages = withGmPlaceholder.map((m) =>
-        m.id === gmId ? { ...m, content: gmText } : m,
+        m.id === gmId ? { ...m, content: displayText } : m,
       )
       setMessages(finalMessages)
       setGmUiPhase(null)
       persistSandboxToSlot({ messages: finalMessages })
       return true
     },
-    [applyCharacterFromGm, persistSandboxToSlot],
+    [applyCharacterFromGm, persistSandboxToSlot, slotIndex, refreshExtractedState],
   )
 
   const enqueueRollingSummary = useCallback((n, m) => {
@@ -531,10 +547,16 @@ export default function SandboxGameApp({
         onArchiveEvent,
         slotIndex,
         factTurn,
+        onExtractStart: () => setIsExtracting(true),
         onExtractComplete: refreshExtractedState,
+        onExtractFinished: () => {
+          setIsExtracting(false)
+          setCanUndo(true)
+        },
         regenerate,
       })
       if (turnOk && incrementTurnCount) {
+        setCanUndo(false)
         setPlayerTurnCount((prev) => {
           const next = prev + 1
           if (next > 0 && next % 10 === 0) enqueueRollingSummary(next - 9, next)
@@ -582,6 +604,10 @@ export default function SandboxGameApp({
     setGmFormatWarning(false)
     setLastFeedback(null)
     try {
+      if (playerTurnCount > 0) {
+        saveUndoSnapshot(slotIndex)
+      }
+      setCanUndo(false)
       setInput('')
       const userMsg = { id: uid(), role: 'player', content: trimmed, ts: Date.now() }
       const gmId = uid()
@@ -620,8 +646,32 @@ export default function SandboxGameApp({
     [loading, gmUiPhase, lastFeedback, feedbackMsgId],
   )
 
+  const handleUndo = useCallback(() => {
+    if (!canUndo || isExtracting || inputLocked) return
+    const lastMessage = restoreUndoSnapshot(slotIndex)
+    if (lastMessage === null) return
+
+    const restored = loadSandboxSlot(slotIndex)
+    setMessages(restored.messages ?? [])
+    setPlayerTurnCount(restored.playerTurnCount ?? 0)
+    setConsecutiveFails(restored.consecutiveFails ?? 0)
+    refreshExtractedState()
+    setInput(lastMessage)
+    setCanUndo(false)
+    setIsExtracting(false)
+    persistSandboxToSlot()
+  }, [
+    canUndo,
+    isExtracting,
+    inputLocked,
+    slotIndex,
+    refreshExtractedState,
+    persistSandboxToSlot,
+  ])
+
   const handleRegenerate = useCallback(async () => {
     if (inputDisabled || !character || !worldFull) return
+    setCanUndo(false)
 
     let lastGmIndex = -1
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -815,13 +865,22 @@ export default function SandboxGameApp({
     />
   )
 
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => !m.isSummary),
+    [messages],
+  )
+  const lastVisiblePlayerIndex = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      if (visibleMessages[i].role === 'player') return i
+    }
+    return -1
+  }, [visibleMessages])
+
   const chatBlock = (
     <>
       <div className="chat-area">
         <div className="chat-scroll">
-        {messages
-          .filter((m) => !m.isSummary)
-          .map((m) => (
+        {visibleMessages.map((m, index) => (
             <article
               key={m.id}
               className={`bubble bubble-${m.role}${m.isArchive ? ' bubble-archive' : ''}`}
@@ -837,6 +896,20 @@ export default function SandboxGameApp({
                 </time>
               </div>
               <div className="bubble-body">{m.content}</div>
+              {m.role === 'player' &&
+              index === lastVisiblePlayerIndex &&
+              playerTurnCount > 1 ? (
+                <div className="undo-btn-wrapper">
+                  <button
+                    type="button"
+                    className={`undo-btn${isExtracting ? ' undo-btn--waiting' : ''}`}
+                    disabled={!canUndo || isExtracting || inputLocked}
+                    onClick={() => handleUndo()}
+                  >
+                    {isExtracting ? '同步中...' : '↩ 撤回'}
+                  </button>
+                </div>
+              ) : null}
               {m.role === 'gm' ? (
                 <div className="gm-feedback-bar">
                   <button

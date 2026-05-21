@@ -340,6 +340,38 @@ section.sandbox-app-root {
   color: #c07070;
 }
 
+.undo-btn-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-right: 4px;
+}
+
+.undo-btn {
+  font-size: 11px;
+  color: #8a7a5a;
+  background: transparent;
+  border: 1px solid rgba(138, 122, 90, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.undo-btn:hover:not(:disabled) {
+  color: #e8d5a0;
+  border-color: rgba(232, 213, 160, 0.5);
+}
+
+.undo-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.undo-btn--waiting {
+  color: #a89060;
+}
+
 .quest-block {
   margin-bottom: 0.5rem;
 }

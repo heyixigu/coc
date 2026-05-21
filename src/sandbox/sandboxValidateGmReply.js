@@ -62,5 +62,33 @@ export function validateSandboxGmReply(text, characterName = '') {
     }
   }
 
+  if (!/【状态变更】/.test(t)) {
+    return { valid: false, reason: 'missing_state_change' }
+  }
+
+  const stateChangeJson = extractStateChangeJson(t)
+  if (!stateChangeJson) {
+    return { valid: false, reason: 'invalid_state_change_json' }
+  }
+
   return { valid: true }
+}
+
+/**
+ * 从GM回复中提取【状态变更】段的JSON
+ * @param {string} reply
+ * @returns {object | null}
+ */
+export function extractStateChangeJson(reply) {
+  const match = reply.match(/【状态变更】\s*([\s\S]*?)(?=【|$)/)
+  if (!match) return null
+  const jsonStr = match[1].trim()
+  const start = jsonStr.indexOf('{')
+  const end = jsonStr.lastIndexOf('}')
+  if (start === -1 || end === -1) return null
+  try {
+    return JSON.parse(jsonStr.slice(start, end + 1))
+  } catch {
+    return null
+  }
 }

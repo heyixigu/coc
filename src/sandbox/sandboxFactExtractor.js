@@ -169,13 +169,7 @@ const TIMELINE_VALID_TAGS = [
  *   newFacts: FactExtractNew[],
  *   updatedFacts: FactExtractUpdate[],
  *   timelineEvent: TimelineExtractEvent | null,
- *   npcUpdates: NpcExtractUpdate[],
- *   worldStateUpdates: WorldStateUpdates | null,
- *   questUpdates: QuestUpdates | null,
  *   memoryGraphUpdates: MemoryGraphUpdates | null,
- *   playerInventory: import('./sandboxInventoryExtract.js').PlayerInventoryExtract | null,
- *   companionInventoryUpdates: import('./sandboxInventoryExtract.js').CompanionInventoryExtract[],
- *   companionProfileUpdates: CompanionProfileExtract[],
  * }} AllStateExtractResult
  */
 
@@ -376,7 +370,6 @@ function parseAllStateExtractJson(raw) {
     const o = /** @type {Record<string, unknown>} */ (parsed)
     const newFacts = []
     const updatedFacts = []
-    const npcUpdates = []
 
     if (Array.isArray(o.newFacts)) {
       for (const item of o.newFacts) {
@@ -421,198 +414,6 @@ function parseAllStateExtractJson(raw) {
     let timelineEvent = null
     if (o.timelineEvent != null && typeof o.timelineEvent === 'object') {
       timelineEvent = normalizeTimelineEvent(o.timelineEvent)
-    }
-
-    if (Array.isArray(o.npcUpdates)) {
-      for (const item of o.npcUpdates) {
-        if (!item || typeof item !== 'object') continue
-        const n = /** @type {Record<string, unknown>} */ (item)
-        const name = typeof n.name === 'string' ? n.name.trim().slice(0, 32) : ''
-        if (!name) continue
-        /** @type {NpcExtractUpdate} */
-        const update = { name, isNew: n.isNew === true }
-        if (typeof n.identity === 'string') update.identity = n.identity.trim().slice(0, 500)
-        if (typeof n.appearance === 'string') update.appearance = n.appearance.trim().slice(0, 200)
-        if (typeof n.personality === 'string') update.personality = n.personality.trim().slice(0, 200)
-        if (typeof n.secret === 'string') update.secret = n.secret.trim().slice(0, 200)
-        if (typeof n.relationship === 'string') update.relationship = n.relationship.trim().slice(0, 500)
-        if (typeof n.relationStrength === 'number' && Number.isFinite(n.relationStrength)) {
-          update.relationStrength = Math.min(5, Math.max(1, Math.round(n.relationStrength)))
-        }
-        if (typeof n.status === 'string') update.status = n.status.trim().slice(0, 500)
-        if (n.isDead === true) update.isDead = true
-        npcUpdates.push(update)
-      }
-    }
-
-    const companionProfileUpdates = []
-    if (Array.isArray(o.companionProfileUpdates)) {
-      for (const item of o.companionProfileUpdates) {
-        if (!item || typeof item !== 'object') continue
-        const c = /** @type {Record<string, unknown>} */ (item)
-        const name = typeof c.name === 'string' ? c.name.trim().slice(0, 32) : ''
-        if (!name) continue
-        /** @type {CompanionProfileExtract} */
-        const update = { name, isNew: c.isNew === true }
-        if (typeof c.role === 'string') update.role = c.role.trim().slice(0, 50)
-        if (typeof c.background === 'string') update.background = c.background.trim().slice(0, 300)
-        if (typeof c.personality === 'string') update.personality = c.personality.trim().slice(0, 200)
-        if (typeof c.appearance === 'string') update.appearance = c.appearance.trim().slice(0, 200)
-        if (typeof c.loyalty === 'number' && Number.isFinite(c.loyalty)) {
-          update.loyalty = Math.min(5, Math.max(1, Math.round(c.loyalty)))
-        }
-        if (typeof c.control === 'number' && Number.isFinite(c.control)) {
-          update.control = Math.min(5, Math.max(0, Math.round(c.control)))
-        }
-        if (typeof c.goal === 'string') update.goal = c.goal.trim().slice(0, 200)
-        if (c.isDead === true) update.isDead = true
-        if (c.isDeparted === true) update.isDeparted = true
-        companionProfileUpdates.push(update)
-      }
-    }
-
-    let worldStateUpdates = null
-    if (o.worldStateUpdates != null && typeof o.worldStateUpdates === 'object') {
-      const ws = /** @type {Record<string, unknown>} */ (o.worldStateUpdates)
-      /** @type {WorldStateUpdates} */
-      const out = {}
-      if (Array.isArray(ws.locations)) {
-        out.locations = ws.locations
-          .filter((x) => x && typeof x === 'object')
-          .map((x) => {
-            const l = /** @type {Record<string, unknown>} */ (x)
-            /** @type {LocationUpdate} */
-            const loc = {
-              name: typeof l.name === 'string' ? l.name.trim().slice(0, 32) : '',
-              isNew: l.isNew === true,
-            }
-            if (typeof l.status === 'string') loc.status = l.status.trim().slice(0, 500)
-            if (typeof l.dangerLevel === 'number' && Number.isFinite(l.dangerLevel)) {
-              loc.dangerLevel = Math.min(5, Math.max(1, Math.round(l.dangerLevel)))
-            }
-            if (typeof l.controlledBy === 'string') loc.controlledBy = l.controlledBy.trim().slice(0, 50)
-            if (typeof l.isAccessible === 'boolean') loc.isAccessible = l.isAccessible
-            if (typeof l.accessNote === 'string') loc.accessNote = l.accessNote.trim().slice(0, 100)
-            return loc
-          })
-          .filter((l) => l.name)
-      }
-      if (Array.isArray(ws.factions)) {
-        out.factions = ws.factions
-          .filter((x) => x && typeof x === 'object')
-          .map((x) => {
-            const f = /** @type {Record<string, unknown>} */ (x)
-            return {
-              name: typeof f.name === 'string' ? f.name.trim().slice(0, 32) : '',
-              attitudeToPlayer:
-                typeof f.attitudeToPlayer === 'string'
-                  ? f.attitudeToPlayer.trim().slice(0, 200)
-                  : '',
-              currentStatus:
-                typeof f.currentStatus === 'string' ? f.currentStatus.trim().slice(0, 500) : '',
-              isNew: f.isNew === true,
-            }
-          })
-          .filter((f) => f.name)
-      }
-      if (ws.environment != null && typeof ws.environment === 'object' && !Array.isArray(ws.environment)) {
-        const e = /** @type {Record<string, unknown>} */ (ws.environment)
-        /** @type {EnvironmentUpdate} */
-        const envUp = {}
-        if (typeof e.weather === 'string' && e.weather.trim()) envUp.weather = e.weather.trim().slice(0, 50)
-        if (typeof e.timeOfDay === 'string' && e.timeOfDay.trim()) {
-          envUp.timeOfDay = e.timeOfDay.trim().slice(0, 20)
-        }
-        if (typeof e.season === 'string' && e.season.trim()) envUp.season = e.season.trim().slice(0, 10)
-        if (e.dayPassed === true) envUp.dayPassed = true
-        out.environment = envUp
-      }
-      if (ws.economy != null && typeof ws.economy === 'object' && !Array.isArray(ws.economy)) {
-        const eco = /** @type {Record<string, unknown>} */ (ws.economy)
-        /** @type {EconomyUpdate} */
-        const ecoUp = {}
-        if (typeof eco.priceLevel === 'number' && Number.isFinite(eco.priceLevel)) {
-          ecoUp.priceLevel = Math.min(5, Math.max(1, Math.round(eco.priceLevel)))
-        }
-        if (typeof eco.currency === 'string' && eco.currency.trim()) {
-          ecoUp.currency = eco.currency.trim().slice(0, 20)
-        }
-        if (typeof eco.marketNote === 'string') ecoUp.marketNote = eco.marketNote.trim().slice(0, 100)
-        out.economy = ecoUp
-      }
-      worldStateUpdates = out
-    }
-
-    let questUpdates = null
-    if (o.questUpdates != null && typeof o.questUpdates === 'object') {
-      const qu = /** @type {Record<string, unknown>} */ (o.questUpdates)
-      /** @type {QuestUpdates} */
-      const outQuest = {}
-      if (Array.isArray(qu.newQuests)) {
-        outQuest.newQuests = qu.newQuests
-          .filter((x) => x && typeof x === 'object')
-          .map((x) => {
-            const q = /** @type {Record<string, unknown>} */ (x)
-            const title = typeof q.title === 'string' ? q.title.trim().slice(0, 64) : ''
-            const objectives = []
-            if (Array.isArray(q.objectives)) {
-              for (const ob of q.objectives) {
-                if (!ob || typeof ob !== 'object') continue
-                const obj = /** @type {Record<string, unknown>} */ (ob)
-                const desc =
-                  typeof obj.description === 'string' ? obj.description.trim().slice(0, 500) : ''
-                if (!desc) continue
-                objectives.push({ description: desc })
-              }
-            }
-            return {
-              title,
-              description:
-                typeof q.description === 'string' ? q.description.trim().slice(0, 2000) : '',
-              category: normalizeQuestCategory(q.category),
-              givenBy: typeof q.givenBy === 'string' ? q.givenBy.trim().slice(0, 64) : '',
-              objectives,
-              reward: typeof q.reward === 'string' ? q.reward.trim().slice(0, 500) : '',
-            }
-          })
-          .filter((q) => q.title)
-      }
-      if (Array.isArray(qu.updatedQuests)) {
-        outQuest.updatedQuests = qu.updatedQuests
-          .filter((x) => x && typeof x === 'object')
-          .map((x) => {
-            const u = /** @type {Record<string, unknown>} */ (x)
-            const id = typeof u.id === 'string' ? u.id.trim().slice(0, 64) : ''
-            if (!id) return null
-            const completedObjectives = []
-            if (Array.isArray(u.completedObjectives)) {
-              for (const cid of u.completedObjectives) {
-                if (typeof cid === 'string' && cid.trim()) {
-                  completedObjectives.push(cid.trim().slice(0, 64))
-                }
-              }
-            }
-            const newObjectives = []
-            if (Array.isArray(u.newObjectives)) {
-              for (const ob of u.newObjectives) {
-                if (!ob || typeof ob !== 'object') continue
-                const obj = /** @type {Record<string, unknown>} */ (ob)
-                const desc =
-                  typeof obj.description === 'string' ? obj.description.trim().slice(0, 500) : ''
-                if (!desc) continue
-                newObjectives.push({ description: desc })
-              }
-            }
-            return {
-              id,
-              status: u.status != null ? normalizeQuestStatus(u.status) : undefined,
-              completedObjectives,
-              newObjectives,
-            }
-          })
-          .filter((u) => u != null)
-      }
-      questUpdates = outQuest
     }
 
     let memoryGraphUpdates = null
@@ -663,26 +464,11 @@ function parseAllStateExtractJson(raw) {
       memoryGraphUpdates = outMg
     }
 
-    let playerInventory = null
-    if (o.playerInventory != null && typeof o.playerInventory === 'object') {
-      playerInventory = normalizePlayerInventoryExtract(o.playerInventory)
-    }
-
-    const companionInventoryUpdates = normalizeCompanionInventoryExtracts(
-      o.companionInventoryUpdates,
-    )
-
     return {
       newFacts,
       updatedFacts,
       timelineEvent,
-      npcUpdates,
-      worldStateUpdates,
-      questUpdates,
       memoryGraphUpdates,
-      playerInventory,
-      companionInventoryUpdates,
-      companionProfileUpdates,
     }
   } catch {
     return null
@@ -1213,17 +999,7 @@ function updateNpcMemoryGraphFromExtract(parsed, currentTurn, slotIndex) {
   return true
 }
 
-function buildAllStateExtractPrompt(
-  gmReply,
-  activeFacts,
-  existingNpcs,
-  existingMemoryGraph,
-  existingWorldState,
-  activeQuests,
-  playerInventory,
-  companions,
-  slotIndex,
-) {
+function buildAllStateExtractPrompt(gmReply, activeFacts, existingNpcs, existingMemoryGraph, slotIndex) {
   const factLines =
     activeFacts.length > 0
       ? activeFacts
@@ -1237,12 +1013,6 @@ function buildAllStateExtractPrompt(
   const npcLines =
     existingNpcs.length > 0
       ? existingNpcs.map((n) => formatNpcArchiveInjectLine(n)).join('\n\n')
-      : '暂无'
-
-  const normalizedCompanions = (companions ?? []).map((c) => applyCompanionDefaults(c))
-  const companionProfileLines =
-    normalizedCompanions.length > 0
-      ? normalizedCompanions.map((c) => formatCompanionArchiveInjectLine(c)).join('\n\n')
       : '暂无'
 
   const graph = existingMemoryGraph
@@ -1270,47 +1040,13 @@ function buildAllStateExtractPrompt(
           .join('\n')
       : '暂无'
 
-  const ws = existingWorldState
-  const wsFactions =
-    ws.factions.map((f) => `${f.name}(${f.attitudeToPlayer}·${f.currentStatus})`).join('、') ||
-    '暂无'
-  const env = ws.environment
-  const wsEnv = `第${env.dayCount}天 | ${env.season} | ${env.timeOfDay} | 天气：${env.weather}`
-  const eco = ws.economy
-  const wsEco = `物价等级：${eco.priceLevel}/5 | 货币：${eco.currency} | ${eco.marketNote || '市场正常'}`
-  const wsLocations =
-    ws.locations.length > 0
-      ? ws.locations
-          .map(
-            (l) =>
-              `[${l.id}] ${l.name}${l.isAccessible ? '' : '【封锁】'} 危险:${l.dangerLevel}/5 归属:${l.controlledBy || '无主'} 状态:${l.status}`,
-          )
-          .join('\n')
-      : '暂无'
-
-  const playerInvText = formatPlayerInventoryForExtractPrompt(playerInventory)
-  const companionInvText =
-    companions.length > 0
-      ? companions.map((c) => formatCompanionInventoryForExtractPrompt(c)).join('\n')
-      : '暂无'
-
-  const questLines =
-    activeQuests.length > 0
-      ? activeQuests
-          .map(
-            (q) =>
-              `[${q.id}] [${q.category}] ${q.title}：${q.description}\n   目标：${q.objectives.map((o) => `${o.completed ? '✓' : '○'} ${o.description}`).join('、')}`,
-          )
-          .join('\n')
-      : '暂无'
-
   const timelineEvents = getInjectableTimeline(slotIndex)
   const timelineLines =
     timelineEvents.length > 0
       ? timelineEvents.map((e) => formatTimelineEventInjectLine(e)).join('\n')
       : '暂无'
 
-  return `你是一个跑团状态提取器。请从以下GM回复中同时提取各类结构化信息。
+  return `你是一个跑团状态提取器。请从以下GM回复中提取事实库、事件时间线与NPC记忆图谱更新（NPC/任务/世界/物品/同伴状态已由【状态变更】段处理，勿重复提取）。
 
 === 现有数据 ===
 
@@ -1328,25 +1064,6 @@ ${memoryNodeLines}
 
 NPC关系网络：
 ${memoryEdgeLines}
-
-世界状态：
-势力：${wsFactions}
-环境：${wsEnv}
-经济：${wsEco}
-地点：
-${wsLocations}
-
-主角物品（装备栏=穿戴/手持，物品栏=背包携带）：
-${playerInvText}
-
-同伴档案：
-${companionProfileLines}
-
-伙伴物品与状态：
-${companionInvText}
-
-进行中任务：
-${questLines}
 
 === 本轮GM回复 ===
 ${gmReply}
@@ -1384,107 +1101,6 @@ ${gmReply}
     "importance": 3,
     "tags": ["death|boss|turning_point|first_meet|betrayal|discovery|quest_complete"]
   },
-  "npcUpdates": [
-    {
-      "name": "NPC姓名",
-      "isNew": true,
-      "identity": "身份背景1~2句",
-      "appearance": "外貌描述1句",
-      "personality": "性格习惯1句",
-      "secret": "隐藏秘密（若GM有暗示）",
-      "relationship": "与玩家关系",
-      "relationStrength": 3,
-      "status": "当前状态或位置",
-      "isDead": false
-    }
-  ],
-  "companionProfileUpdates": [
-    {
-      "name": "同伴姓名",
-      "role": "职业定位",
-      "background": "来历背景1~2句",
-      "personality": "性格特点1句",
-      "appearance": "外貌描述1句",
-      "loyalty": 3,
-      "control": 0,
-      "goal": "伙伴自己的目标",
-      "isDead": false,
-      "isDeparted": false
-    }
-  ],
-  "worldStateUpdates": {
-    "locations": [
-      {
-        "name": "地点名",
-        "status": "当前状态",
-        "dangerLevel": 2,
-        "controlledBy": "控制势力名，无主填空字符串",
-        "isAccessible": true,
-        "accessNote": "若不可进入说明原因",
-        "isNew": true
-      }
-    ],
-    "factions": [
-      { "name": "势力名", "attitudeToPlayer": "态度", "currentStatus": "当前状况", "isNew": true }
-    ],
-    "environment": {
-      "weather": "天气描述",
-      "timeOfDay": "清晨|上午|正午|下午|傍晚|夜晚|深夜",
-      "season": "春|夏|秋|冬",
-      "dayPassed": false
-    },
-    "economy": {
-      "priceLevel": 3,
-      "currency": "货币名称",
-      "marketNote": "市场特殊情况"
-    }
-  },
-  "playerInventory": {
-    "equipped": [
-      { "name": "物品名", "description": "简述" }
-    ],
-    "carried": [
-      { "name": "物品名", "description": "简述", "quantity": 1 }
-    ]
-  },
-  "companionInventoryUpdates": [
-    {
-      "name": "伙伴名",
-      "role": "定位",
-      "hp": 0,
-      "maxHp": 0,
-      "mp": 0,
-      "maxMp": 0,
-      "skills": { "战斗": 0, "交涉": 0, "感知": 0, "潜行": 0, "学识": 0, "意志": 0, "体魄": 0 },
-      "equipped": [{ "name": "物品名", "description": "简述" }],
-      "carried": [{ "name": "物品名", "description": "简述", "quantity": 1 }],
-      "status": "active|dead|departed"
-    }
-  ],
-  "questUpdates": {
-    "newQuests": [
-      {
-        "title": "任务标题",
-        "description": "任务描述",
-        "category": "main|side",
-        "givenBy": "委托人",
-        "objectives": [
-          { "description": "目标描述" }
-        ],
-        "reward": "奖励描述"
-      }
-    ],
-    "updatedQuests": [
-      {
-        "id": "被更新的任务id",
-        "status": "active|completed|failed",
-        "completedObjectives": ["已完成的目标id列表"],
-        "newObjectives": [
-          { "description": "新增目标描述" }
-        ]
-      }
-    ]
-  },
   "memoryGraphUpdates": {
     "nodeUpdates": [
       {
@@ -1511,37 +1127,11 @@ ${gmReply}
 - importance<=2 且 confidence=low 的事实不要提取，直接忽略
 - timelineEvent 只在有关键事件时输出，否则为 null
 - 琐碎对话不记录为时间线事件，战斗/重要发现/关键NPC/任务推进才记录
-- importance 1~5：5=改变剧情走向的核心转折，4=重要战斗/关键NPC死亡/重大发现，3=普通剧情推进，2=次要事件，1=几乎无意义的琐碎
 - importance>=4 的事件会永久保留不被挤出，请谨慎给高分
-- tags 从以下选择（可多选）：death=角色死亡, boss=强敌战斗, turning_point=剧情转折, first_meet=首次相遇重要NPC, betrayal=背叛, discovery=重大发现, quest_complete=任务完成
-- 无合适 tag 时输出空数组
-- NPC isDead=true 表示已死亡，死亡 NPC 不得在后续剧情中复活，注入 GM 时会明确标注
-- NPC secret 只在 GM 明确暗示或揭示时填写，不要推测
-- relationStrength 1~5：1=陌生/敌对，2=认识，3=普通，4=信任，5=深厚羁绊
-- 同伴 loyalty 1~5：1=随时背叛，3=中立服从，5=誓死追随
-- 同伴 control 0~5：0=完全自由，3=部分受控，5=完全受控（魔法/科技/异能控制）
-- loyalty 和 control 独立存在，被控制的同伴 loyalty 可以很高也可以很低
-- 同伴 isDead/isDeparted=true 后不可逆，不得在后续设为 false
-- companionProfileUpdates 只在同伴有明确信息变化时输出，首次相遇时输出完整档案
-- npcUpdates 只包含本轮出现或状态变化的 NPC
-- environment 每轮必须输出，timeOfDay 根据 GM 叙述更新，dayPassed=true 表示 AI 判断剧情中过了一天
-- dayPassed 判断标准：GM 叙述中出现明确的睡眠/休息过夜/次日等描述时为 true，否则为 false
-- dangerLevel 1~5：1=安全，2=低危，3=中危，4=高危，5=极度危险
-- controlledBy 为空字符串表示无主之地或独立地区
-- isAccessible=false 时必须填写 accessNote 说明原因
-- economy 只在市场/交易/物价有明确变化时输出，否则为 null
-- priceLevel 1~5：1=极便宜，2=便宜，3=正常，4=昂贵，5=极昂贵
-- worldStateUpdates 只包含本轮发生变化的条目
-- isNew 为 true 表示新增，false 表示更新现有条目
-- questUpdates 只包含本轮发生变化的任务
-- 新任务只在 GM 明确给出委托/任务时创建，不要推测
-- 任务完成/失败只在 GM 明确叙述结果时标记
+- tags 从以下选择（可多选）：death, boss, turning_point, first_meet, betrayal, discovery, quest_complete；无合适 tag 时输出空数组
 - memoryGraphUpdates 只包含本轮有记忆变化或新关系的 NPC
-- newMemory 只在 NPC 与玩家有实质互动时填写，路人 NPC 忽略
-- 态度变化只在有明确原因时记录
-- NPC 之间的关系只在 GM 明确描述时提取，不推测
-- playerInventory 与 companionInventoryUpdates 若输出则表示该角色当前完整装备/背包快照（全量列表），物品丢失/损毁/转让后从列表移除
-- equipped=穿戴或手持，carried=背包未穿戴；伙伴 status=departed 表示离队`
+- newMemory 只在 NPC 与玩家有实质互动时填写；态度变化只在有明确原因时记录
+- NPC 之间的关系只在 GM 明确描述时提取，不推测`
 }
 
 function updateInventoryFromExtract(parsed, slotIndex) {
@@ -1557,11 +1147,6 @@ function updateInventoryFromExtract(parsed, slotIndex) {
   return true
 }
 
-function hasQuestExtractChanges(questUpdates) {
-  if (!questUpdates) return false
-  return (questUpdates.newQuests?.length ?? 0) > 0 || (questUpdates.updatedQuests?.length ?? 0) > 0
-}
-
 function hasMemoryGraphExtractChanges(memoryGraphUpdates) {
   if (!memoryGraphUpdates) return false
   return (
@@ -1573,25 +1158,12 @@ function hasMemoryGraphExtractChanges(memoryGraphUpdates) {
 function hasAnyExtractChanges(parsed) {
   if (parsed.newFacts.length || parsed.updatedFacts.length) return true
   if (parsed.timelineEvent) return true
-  if (parsed.npcUpdates.length) return true
-  if (hasQuestExtractChanges(parsed.questUpdates)) return true
   if (hasMemoryGraphExtractChanges(parsed.memoryGraphUpdates)) return true
-  if (parsed.playerInventory) return true
-  if (parsed.companionInventoryUpdates.length > 0) return true
-  if (parsed.companionProfileUpdates?.length > 0) return true
-  const ws = parsed.worldStateUpdates
-  if (!ws) return false
-  if ((ws.locations?.length ?? 0) > 0 || (ws.factions?.length ?? 0) > 0) return true
-  if (ws.economy != null) return true
-  const env = ws.environment
-  if (env && typeof env === 'object' && !Array.isArray(env)) {
-    if (env.weather || env.timeOfDay || env.season || env.dayPassed) return true
-  }
   return false
 }
 
 /**
- * GM 回复后六合一后台提取；失败静默跳过。
+ * GM 回复后事实库/时间线/记忆图谱后台提取；失败静默跳过。
  * @param {object} opts
  * @param {string} opts.apiKey
  * @param {string} opts.gmReply
@@ -1624,19 +1196,11 @@ export async function extractAllStateUpdates({
   const activeFacts = getActiveFacts(slotIndex)
   const npcArchive = loadNpcArchive(slotIndex)
   const memoryGraph = loadNpcMemoryGraph(slotIndex)
-  const worldState = loadWorldState(slotIndex)
-  const questState = loadQuestState(slotIndex)
-  const activeQuests = questState.quests.filter((q) => q.status === 'active')
-  const slot = loadSandboxSlot(slotIndex)
   const prompt = buildAllStateExtractPrompt(
     text,
     activeFacts,
     npcArchive.npcs,
     memoryGraph,
-    worldState,
-    activeQuests,
-    slot.playerInventory,
-    slot.companions ?? [],
     slotIndex,
   )
 
@@ -1668,32 +1232,7 @@ export async function extractAllStateUpdates({
     /* */
   }
   try {
-    if (updateNpcArchiveFromExtract(parsed, slotIndex)) changed = true
-  } catch {
-    /* */
-  }
-  try {
-    if (updateWorldStateFromExtract(parsed, currentTurn, slotIndex)) changed = true
-  } catch {
-    /* */
-  }
-  try {
-    if (updateQuestStateFromExtract(parsed, currentTurn, slotIndex)) changed = true
-  } catch {
-    /* */
-  }
-  try {
     if (updateNpcMemoryGraphFromExtract(parsed, currentTurn, slotIndex)) changed = true
-  } catch {
-    /* */
-  }
-  try {
-    if (updateInventoryFromExtract(parsed, slotIndex)) changed = true
-  } catch {
-    /* */
-  }
-  try {
-    if (updateCompanionProfileFromExtract(parsed, slotIndex)) changed = true
   } catch {
     /* */
   }

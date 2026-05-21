@@ -17,7 +17,7 @@ import { SANDBOX_WORLD_DETAILS } from './sandbox_world_details.js'
 /** 玩家回合：检定结果已预先注入时使用 */
 export const SANDBOX_PRE_ROLL_ADDENDUM = `【本轮检定】
 骰子结果已由系统在同轮玩家消息之后提供（若干行 [ROLL_RESULT:技能名:投掷值:判定]）。
-你直接根据这些已知结果描写后果与场面，一次性写完五段格式回复。
+你直接根据这些已知结果描写后果与场面，一次性写完六段格式回复（含【状态变更】）。
 不需要再插入任何 [ROLL] 标记。`
 
 /**
@@ -286,13 +286,14 @@ ${npcContext ? `${npcContext}\n` : ''}${companionContext ? `${companionContext}\
 不得引入上述世界观范围外的元素（例如在古代东方出现智能手机，在奇幻世界出现企业财团等）。
 
 【格式强制规定】
-你的每一条回复必须且只能包含以下五个部分，缺一不可，顺序不可变：
+你的每一条回复必须且只能包含以下六个部分，缺一不可，顺序不可变：
 
 【场景】
 【主角行为】
 【他人行为】
 【当前状态】
 【你可以：】
+【状态变更】
 
 其中：
 - 「【场景】」：环境与氛围、剧情推进；不替玩家做决定或替玩家发言。
@@ -317,8 +318,86 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
 - 伙伴技能 5~80，符合背景；伙伴 HP = 10 + floor(体魄/10)，MP = 10 + floor(学识/10)（x/y 须与技能一致）
 - 伙伴参与行动时，在【主角行为】或【他人行为】中体现其行动与检定后果
 - 「【你可以：】」：列出 2~4 个主角可采取的行动；勿问「要不要检定」。
+- 「【状态变更】」：严格按下列 JSON 输出本轮所有状态变化，无变化的字段输出空数组或 null；必须输出，供程序读取：
 
-违反格式规定的回复视为无效。不得在格式之外添加任何额外内容。
+{
+  "npcChanges": [
+    {
+      "name": "NPC姓名",
+      "isNew": true,
+      "identity": "身份1句",
+      "relationship": "与玩家关系",
+      "status": "当前状态"
+    }
+  ],
+  "questChanges": {
+    "newQuests": [
+      {
+        "title": "任务标题",
+        "description": "任务描述",
+        "category": "main|side",
+        "givenBy": "委托人",
+        "objectives": ["目标描述1", "目标描述2"],
+        "reward": "奖励描述"
+      }
+    ],
+    "updatedQuests": [
+      {
+        "title": "任务标题",
+        "status": "active|completed|failed",
+        "completedObjectives": ["已完成目标描述"]
+      }
+    ]
+  },
+  "locationChanges": [
+    {
+      "name": "地点名",
+      "status": "当前状态",
+      "dangerLevel": 2,
+      "controlledBy": "控制势力，无主填空字符串",
+      "isAccessible": true,
+      "accessNote": "",
+      "isNew": true
+    }
+  ],
+  "environmentChange": {
+    "weather": "天气",
+    "timeOfDay": "清晨|上午|正午|下午|傍晚|夜晚|深夜",
+    "season": "春|夏|秋|冬",
+    "dayPassed": false
+  },
+  "playerInventory": {
+    "equipped": [{"name": "物品名", "description": "简述"}],
+    "carried": [{"name": "物品名", "description": "简述", "quantity": 1}]
+  },
+  "companionChanges": [
+    {
+      "name": "同伴姓名",
+      "hp": 0,
+      "maxHp": 0,
+      "mp": 0,
+      "maxMp": 0,
+      "status": "active|dead|departed",
+      "equipped": [{"name": "物品名", "description": "简述"}],
+      "carried": [{"name": "物品名", "description": "简述", "quantity": 1}]
+    }
+  ],
+  "playerStatus": {
+    "hp": 0,
+    "maxHp": 0,
+    "mp": 0,
+    "maxMp": 0
+  }
+}
+
+【状态变更】注意：
+- 只输出本轮发生变化的内容，无变化字段输出空数组或 null
+- playerInventory 若输出则为完整快照（全量列表），不是增量
+- companionChanges 同理，输出的同伴为完整当前状态
+- dayPassed=true 仅在叙述中出现明确过夜/次日时使用
+- npcChanges 只包含本轮出现或状态变化的 NPC
+
+违反格式规定的回复视为无效。不得在六个部分之外添加任何额外内容。
 
 【核心禁令】
 你永远不知道有风险行动的结果，结果由骰子决定。
@@ -345,7 +424,7 @@ ${factContext ? `${factContext}\n` : ''}${timelineContext ? `${timelineContext}\
  * @param {SandboxWorld} world
  */
 export function buildSandboxOpeningUserMessage(character, world) {
-  return `请根据以下信息生成沙盒模式的开场，直接输出完整五段格式回复（【场景】【主角行为】【他人行为】【当前状态】【你可以：】），不要前言。
+  return `请根据以下信息生成沙盒模式的开场，直接输出完整六段格式回复（【场景】【主角行为】【他人行为】【当前状态】【你可以：】【状态变更】），不要前言。
 
 世界观：${world.name} — ${world.flavor}
 
@@ -359,5 +438,6 @@ HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
 【当前状态】必须严格为两行，示例：
 ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
 物品：无
-开场应引入一个可探索的局面；【主角行为】可写序幕中的被动处境；【他人行为】无则写「无」。`
+开场应引入一个可探索的局面；【主角行为】可写序幕中的被动处境；【他人行为】无则写「无」。
+【状态变更】须输出合法 JSON；开场若无实质变化，各数组字段可为 []，environmentChange 与 playerStatus 可为 null。`
 }
