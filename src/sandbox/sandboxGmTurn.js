@@ -22,12 +22,7 @@ export function buildSandboxFeedbackInstruction(feedback) {
 
 const SANDBOX_FORMAT_RETRY_HINT = `
 
-【格式纠正】上次回复格式无效。请严格输出六段，【状态变更】在最后且仅为单行 JSON；无变化用 {}；不要用代码块。`
-
-/** @param {string | null | undefined} reason */
-function shouldAppendStateChangeFormatHint(reason) {
-  return reason === 'missing_state_change' || reason === 'invalid_state_change_json'
-}
+【格式纠正】上次回复格式无效。请严格输出五段：【场景】【主角行为】【他人行为】【当前状态】【你可以：】，顺序不可变，不要额外段落。不要输出【状态变更】或 JSON。`
 
 /**
  * 将反馈附到链上最后一条玩家消息末尾（不改 system prompt）。
@@ -98,10 +93,7 @@ export async function fetchValidatedSandboxGmReply({
     let lastRaw = first.raw || ''
 
     if (!text) {
-      const retryHint = shouldAppendStateChangeFormatHint(first.reason)
-        ? SANDBOX_FORMAT_RETRY_HINT
-        : ''
-      const second = await attempt(retryHint)
+      const second = await attempt(SANDBOX_FORMAT_RETRY_HINT)
       text = second.text
       lastReason = second.reason || lastReason
       lastRaw = second.raw || lastRaw

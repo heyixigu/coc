@@ -11,15 +11,14 @@ import {
 import { extractStateChangeJson } from './sandboxValidateGmReply.js'
 
 /**
- * 从GM回复中解析并应用【状态变更】
- * @param {string} gmReply
+ * 应用结构化状态变更对象。
+ * @param {object | null} data
  * @param {number} slotIndex
  * @param {number} currentTurn
  * @returns {boolean} 是否有变化
  */
-export function applyStateChangeFromGmReply(gmReply, slotIndex, currentTurn) {
+export function applyStateChangeData(data, slotIndex, currentTurn) {
   void currentTurn
-  const data = extractStateChangeJson(gmReply)
   if (!data) return false
 
   let changed = false
@@ -207,6 +206,17 @@ export function applyStateChangeFromGmReply(gmReply, slotIndex, currentTurn) {
   }
 
   return changed
+}
+
+/**
+ * 从GM回复中解析并应用【状态变更】
+ * @param {string} gmReply
+ * @param {number} slotIndex
+ * @param {number} currentTurn
+ * @returns {boolean} 是否有变化
+ */
+export function applyStateChangeFromGmReply(gmReply, slotIndex, currentTurn) {
+  return applyStateChangeData(extractStateChangeJson(gmReply), slotIndex, currentTurn)
 }
 
 /**

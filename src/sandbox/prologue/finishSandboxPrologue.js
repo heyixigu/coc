@@ -18,7 +18,7 @@ import {
  * @param {import('../sandboxStorage.js').SandboxCharacter} opts.character
  * @param {import('../sandboxStorage.js').SandboxWorldRef} opts.world
  * @param {string} opts.opening
- * @param {string} [opts.openingRaw] 含【状态变更】的完整 GM 回复
+ * @param {string} [opts.openingRaw] 兼容旧版含【状态变更】的完整 GM 回复
  */
 export function finishSandboxPrologue({ slotIndex, character, world, opening, openingRaw }) {
   const slot =

@@ -999,7 +999,14 @@ function updateNpcMemoryGraphFromExtract(parsed, currentTurn, slotIndex) {
   return true
 }
 
-function buildAllStateExtractPrompt(gmReply, activeFacts, existingNpcs, existingMemoryGraph, slotIndex) {
+function buildAllStateExtractPrompt(
+  gmReply,
+  activeFacts,
+  existingNpcs,
+  existingMemoryGraph,
+  slotIndex,
+  playerText = '',
+) {
   const factLines =
     activeFacts.length > 0
       ? activeFacts
@@ -1064,6 +1071,9 @@ ${memoryNodeLines}
 
 NPC关系网络：
 ${memoryEdgeLines}
+
+=== 本轮玩家行动 ===
+${playerText || '无'}
 
 === 本轮GM回复 ===
 ${gmReply}
@@ -1167,6 +1177,7 @@ function hasAnyExtractChanges(parsed) {
  * @param {object} opts
  * @param {string} opts.apiKey
  * @param {string} opts.gmReply
+ * @param {string} [opts.playerText]
  * @param {number} opts.currentTurn
  * @param {number} opts.slotIndex
  * @param {() => void} [opts.onComplete]
@@ -1175,6 +1186,7 @@ function hasAnyExtractChanges(parsed) {
 export async function extractAllStateUpdates({
   apiKey,
   gmReply,
+  playerText = '',
   currentTurn,
   slotIndex,
   onComplete,
@@ -1202,6 +1214,7 @@ export async function extractAllStateUpdates({
     npcArchive.npcs,
     memoryGraph,
     slotIndex,
+    playerText,
   )
 
   let raw

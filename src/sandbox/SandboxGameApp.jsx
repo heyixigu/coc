@@ -15,10 +15,8 @@ import { rollbackSandboxExtractForTurn } from './sandboxExtractRollback.js'
 import { runSandboxRollingSummary } from './sandboxRollingSummary.js'
 import { runSandboxTurnSummary } from './sandboxTurnSummary.js'
 import { runSandboxTypewriter } from './sandboxTypewriter.js'
-import {
-  applyStateChangeFromGmReply,
-  stripStateChangeSection,
-} from './sandboxStateChangeParser.js'
+import { stripStateChangeSection } from './sandboxStateChangeParser.js'
+import { extractAndApplyStateChange } from './sandboxStateChangeExtractor.js'
 import WorldbookEditor from '../worldbook/WorldbookEditor.jsx'
 import TimelineOverlay from './components/TimelineOverlay.jsx'
 import SandboxStatCard from './components/SandboxStatCard'
@@ -422,12 +420,6 @@ export default function SandboxGameApp({
         return false
       }
       const rawGmReply = result.text
-
-      if (slotIndex != null && Number.isFinite(slotIndex)) {
-        applyStateChangeFromGmReply(rawGmReply, slotIndex, factTurn)
-        refreshExtractedState()
-      }
-
       const displayText = stripStateChangeSection(rawGmReply)
 
       applyCharacterFromGm(displayText)
@@ -436,10 +428,6 @@ export default function SandboxGameApp({
       const gmPlaceholder = { id: gmId, role: 'gm', content: '', ts: gmTs }
       const withGmPlaceholder = [...baseMessages, gmPlaceholder]
       setMessages(withGmPlaceholder)
-
-      if (typeof onGmComplete === 'function') {
-        onGmComplete(displayText)
-      }
 
       try {
         await runSandboxTypewriter({
@@ -465,6 +453,28 @@ export default function SandboxGameApp({
       setMessages(finalMessages)
       setGmUiPhase(null)
       persistSandboxToSlot({ messages: finalMessages })
+      if (typeof onGmComplete === 'function') {
+        onGmComplete(displayText)
+      }
+      if (slotIndex != null && Number.isFinite(slotIndex)) {
+        const lastPlayerText = [...chain].reverse().find((m) => m.role === 'player')?.content ?? ''
+        void extractAndApplyStateChange({
+          apiKey: key,
+          slotIndex,
+          currentTurn: factTurn,
+          playerText: lastPlayerText,
+          gmText: displayText,
+          signal,
+        })
+          .then((changed) => {
+            if (changed) refreshExtractedState()
+          })
+          .catch((e) => {
+            if (e?.name !== 'AbortError') {
+              console.warn('[SandboxGameApp] state change extraction failed', e)
+            }
+          })
+      }
       return true
     },
     [applyCharacterFromGm, persistSandboxToSlot, slotIndex, refreshExtractedState],

@@ -62,26 +62,7 @@ export function validateSandboxGmReply(text, characterName = '') {
     }
   }
 
-  if (!/【状态变更】/.test(t)) {
-    return { valid: false, reason: 'missing_state_change' }
-  }
-
-  const stateChangeJson = extractStateChangeJson(t)
-  if (!stateChangeJson) {
-    return { valid: false, reason: 'invalid_state_change_json' }
-  }
-
   return { valid: true }
-}
-
-/**
- * @param {string} raw
- * @returns {string}
- */
-function normalizeStateChangeJsonText(raw) {
-  let s = (raw || '').trim()
-  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
-  return s
 }
 
 /**
@@ -90,20 +71,47 @@ function normalizeStateChangeJsonText(raw) {
  * @returns {object | null}
  */
 export function extractStateChangeJson(reply) {
-  const match = reply.match(/【状态变更】\s*([\s\S]*?)(?=【|$)/)
-  if (!match) return null
-  const jsonStr = normalizeStateChangeJsonText(match[1])
-  const start = jsonStr.indexOf('{')
-  const end = jsonStr.lastIndexOf('}')
-  if (start === -1 || end === -1 || end < start) {
-    console.warn('[extractStateChangeJson] no JSON object found', jsonStr.slice(0, 200))
-    return null
+  const marker = '【状态变更】'
+  const markerIndex = reply.indexOf(marker)
+  if (markerIndex === -1) return null
+  const text = reply.slice(markerIndex + marker.length)
+  const start = text.indexOf('{')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let end = -1
+
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (ch === '{') depth += 1
+    if (ch === '}') {
+      depth -= 1
+      if (depth === 0) {
+        end = i
+        break
+      }
+    }
   }
-  const slice = jsonStr.slice(start, end + 1)
+
+  if (end === -1) return null
   try {
-    return JSON.parse(slice)
-  } catch (e) {
-    console.warn('[extractStateChangeJson] parse failed', slice.slice(0, 300), e)
+    return JSON.parse(text.slice(start, end + 1))
+  } catch {
     return null
   }
 }

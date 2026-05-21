@@ -14,7 +14,7 @@
 - **玩家回合主流程**：裁判 → 预掷骰 → GM 叙述；不要改成「让模型自己报骰点」。
 - **主线**：`partner` 是林知渺的数值面板；她的对白写在 GM 回复的 `【林知渺】` 段，不是独立玩家账号。
 - **主线 GM 格式** 四段固定；改格式须同步 `system_prompt.js` 与 `parseGmStatus.js` 等解析逻辑。
-- **沙盒 GM 格式** 六段固定（含 `【状态变更】` JSON，无变化用 `{}`、按需键）；聊天与存档只存前五段展示文本；改格式须同步 `sandbox_system_prompt.js`、`sandboxValidateGmReply.js`、`sandboxStateChangeParser.js`。
+- **沙盒 GM 格式** 六段固定（含 `【状态变更】` JSON）；聊天与存档只存前五段展示文本；改格式须同步 `sandbox_system_prompt.js`、`sandboxValidateGmReply.js`、`sandboxStateChangeParser.js`。
 - **沙盒勿改 CoC 主线**；沙盒勿在叙事/UI 硬编码克苏鲁/SAN 等主线机制。
 
 ## 关键入口文件

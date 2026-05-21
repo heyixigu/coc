@@ -252,6 +252,7 @@ export async function runSandboxPlayerTurn({
           void extractAllStateUpdates({
             apiKey: key,
             gmReply,
+            playerText: actionText,
             currentTurn: factTurn,
             slotIndex,
             onComplete: onExtractComplete,

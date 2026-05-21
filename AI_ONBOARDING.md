@@ -158,7 +158,7 @@ fetchValidatedGmReply (postChatNonStream)
 3. **【他人行为】** — NPC/环境反应；无则写「无」
 4. **【当前状态】** — 主角 + 伙伴 HP/MP/物品行（供人读；程序另读第六段）
 5. **【你可以：】** — 2~4 个可行动项
-6. **【状态变更】** — **单行 JSON**（最后一段）；无变化时 `{}`，有变化时只写变化的键（见 `SANDBOX_STATE_CHANGE_INSTRUCTIONS`）；校验失败会带格式纠正重试
+6. **【状态变更】** — **严格 JSON**（NPC/任务/地点/环境/背包/同伴/玩家数值等）；无变化字段用 `[]` 或 `null`
 
 **展示与存档**：`SandboxGameApp.presentGm` 在校验通过后先 [`applyStateChangeFromGmReply`](./src/sandbox/sandboxStateChangeParser.js)，再 [`stripStateChangeSection`](./src/sandbox/sandboxStateChangeParser.js) — 打字机与 `messages` **不含**第六段。
 
