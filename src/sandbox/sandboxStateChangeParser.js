@@ -24,38 +24,28 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
   let changed = false
 
   try {
-    if (data.playerStatus) {
-      const slot = loadSandboxSlot(slotIndex)
-      if (slot.character) {
-        if (typeof data.playerStatus.hp === 'number') slot.character.hp = data.playerStatus.hp
-        if (typeof data.playerStatus.maxHp === 'number') slot.character.maxHp = data.playerStatus.maxHp
-        if (typeof data.playerStatus.mp === 'number') slot.character.mp = data.playerStatus.mp
-        if (typeof data.playerStatus.maxMp === 'number') slot.character.maxMp = data.playerStatus.maxMp
-        saveSandboxSlot(slotIndex, slot)
-        changed = true
-      }
-    }
-  } catch {
-    /* */
-  }
+    const slot = loadSandboxSlot(slotIndex)
+    let slotDirty = false
 
-  try {
+    if (data.playerStatus && slot.character) {
+      if (typeof data.playerStatus.hp === 'number') slot.character.hp = data.playerStatus.hp
+      if (typeof data.playerStatus.maxHp === 'number') slot.character.maxHp = data.playerStatus.maxHp
+      if (typeof data.playerStatus.mp === 'number') slot.character.mp = data.playerStatus.mp
+      if (typeof data.playerStatus.maxMp === 'number') slot.character.maxMp = data.playerStatus.maxMp
+      slotDirty = true
+      changed = true
+    }
+
     if (data.playerInventory) {
-      const slot = loadSandboxSlot(slotIndex)
       slot.playerInventory = {
         equipped: Array.isArray(data.playerInventory.equipped) ? data.playerInventory.equipped : [],
         carried: Array.isArray(data.playerInventory.carried) ? data.playerInventory.carried : [],
       }
-      saveSandboxSlot(slotIndex, slot)
+      slotDirty = true
       changed = true
     }
-  } catch {
-    /* */
-  }
 
-  try {
     if (Array.isArray(data.companionChanges) && data.companionChanges.length > 0) {
-      const slot = loadSandboxSlot(slotIndex)
       for (const update of data.companionChanges) {
         const companion = (slot.companions ?? []).find((c) => c.name === update.name)
         if (!companion) continue
@@ -69,11 +59,15 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
         if (Array.isArray(update.equipped)) companion.equipped = update.equipped
         if (Array.isArray(update.carried)) companion.carried = update.carried
       }
-      saveSandboxSlot(slotIndex, slot)
+      slotDirty = true
       changed = true
     }
-  } catch {
-    /* */
+
+    if (slotDirty) {
+      saveSandboxSlot(slotIndex, slot)
+    }
+  } catch (e) {
+    console.warn('applyStateChangeData [slot]:', e)
   }
 
   try {
@@ -106,8 +100,8 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
       saveNpcArchive(slotIndex, archive)
       changed = true
     }
-  } catch {
-    /* */
+  } catch (e) {
+    console.warn('applyStateChangeData [npcChanges]:', e)
   }
 
   try {
@@ -154,8 +148,8 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
       saveQuestState(slotIndex, questState)
       changed = true
     }
-  } catch {
-    /* */
+  } catch (e) {
+    console.warn('applyStateChangeData [questChanges]:', e)
   }
 
   try {
@@ -201,8 +195,8 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
       saveWorldState(slotIndex, worldState)
       changed = true
     }
-  } catch {
-    /* */
+  } catch (e) {
+    console.warn('applyStateChangeData [worldState]:', e)
   }
 
   return changed

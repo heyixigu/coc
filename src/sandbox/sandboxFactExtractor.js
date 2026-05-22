@@ -23,13 +23,6 @@ import {
   saveSandboxSlot,
   saveWorldState,
 } from './sandboxStorage.js'
-import {
-  applyInventoryExtractToSlotState,
-  formatCompanionInventoryForExtractPrompt,
-  formatPlayerInventoryForExtractPrompt,
-  normalizeCompanionInventoryExtracts,
-  normalizePlayerInventoryExtract,
-} from './sandboxInventoryExtract.js'
 
 /**
  * @typedef {import('./sandboxStorage.js').SandboxFactCategory} SandboxFactCategory
@@ -1142,19 +1135,6 @@ ${gmReply}
 - memoryGraphUpdates 只包含本轮有记忆变化或新关系的 NPC
 - newMemory 只在 NPC 与玩家有实质互动时填写；态度变化只在有明确原因时记录
 - NPC 之间的关系只在 GM 明确描述时提取，不推测`
-}
-
-function updateInventoryFromExtract(parsed, slotIndex) {
-  if (!parsed.playerInventory && !parsed.companionInventoryUpdates.length) return false
-  const slot = loadSandboxSlot(slotIndex)
-  const next = applyInventoryExtractToSlotState(
-    slot,
-    parsed.playerInventory,
-    parsed.companionInventoryUpdates,
-  )
-  if (!next) return false
-  saveSandboxSlot(slotIndex, next)
-  return true
 }
 
 function hasMemoryGraphExtractChanges(memoryGraphUpdates) {
