@@ -139,7 +139,7 @@ ${truncate(gmText, 5000)}
       console.warn('[sandboxStateChangeExtractor] invalid JSON from extractor', raw)
       return false
     }
-    return applyStateChangeData(data, slotIndex, currentTurn)
+    return applyStateChangeData(data, slotIndex, currentTurn, key, gmText)
   } catch (e) {
     if (e?.name === 'AbortError') throw e
     console.warn('[sandboxStateChangeExtractor] extraction failed', e)

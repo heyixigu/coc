@@ -1,7 +1,7 @@
 /**
  * 当前数据版本号，每次新增字段时 +1
  */
-export const CURRENT_VERSION = 1
+export const CURRENT_VERSION = 2
 
 /**
  * @typedef {import('./sandboxStorage.js').SandboxState} SandboxState
@@ -32,6 +32,32 @@ export function migrateSandboxState(state) {
       isDeparted: false,
       ...c,
     }))
+  }
+
+  if (version < 2) {
+    const active = []
+    const archived = []
+
+    for (const c of state.companions ?? []) {
+      const isDead = c.isDead === true || c.status === 'dead'
+      const isDeparted = c.isDeparted === true || c.status === 'left' || c.status === 'departed'
+
+      let status = 'active'
+      if (isDead) status = 'dead'
+      else if (isDeparted) status = 'left'
+
+      const { isDead: _d, isDeparted: _dp, ...rest } = c
+      const migrated = { ...rest, status }
+
+      if (status === 'active') {
+        active.push(migrated)
+      } else {
+        archived.push(migrated)
+      }
+    }
+
+    state.companions = active
+    state.archivedCompanions = [...(state.archivedCompanions ?? []), ...archived]
   }
 
   state.__version = CURRENT_VERSION

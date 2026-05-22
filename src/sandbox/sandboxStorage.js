@@ -183,8 +183,6 @@ export function normalizeSandboxSlotIndex(slotIndex) {
  *   control: number,
  *   goal: string,
  *   status: SandboxCompanionStatus,
- *   isDead: boolean,
- *   isDeparted: boolean,
  *   equipped: SandboxInventoryItem[],
  *   carried: SandboxInventoryItem[],
  * }} SandboxCompanion */
@@ -231,6 +229,7 @@ export function normalizeSandboxSlotIndex(slotIndex) {
  *   archivedEvents: SandboxArchivedEventEntry[],
  *   eventIndex: number,
  *   companions: SandboxCompanion[],
+ *   archivedCompanions: SandboxCompanion[],
  *   playerInventory: SandboxPlayerInventory,
  *   __version?: number,
  * }} SandboxState
@@ -267,6 +266,7 @@ export function defaultSandboxState() {
     archivedEvents: [],
     eventIndex: 1,
     companions: [],
+    archivedCompanions: [],
     playerInventory: defaultPlayerInventory(),
   }
 }
@@ -489,25 +489,23 @@ function normalizeCompanionControl(raw) {
 
 /** @param {SandboxCompanion} c */
 export function applyCompanionDefaults(c) {
-  const status = c.status ?? 'active'
-  const isDead = c.isDead === true || status === 'dead'
-  const isDeparted = c.isDeparted === true || status === 'left'
+  const status = c.status === 'dead' || c.status === 'left' ? c.status : 'active'
   return {
-    background: '',
-    personality: '',
-    appearance: '',
-    loyalty: 3,
-    control: 0,
-    goal: '',
-    isDead: false,
-    isDeparted: false,
-    role: '',
-    equipped: [],
-    carried: [],
-    ...c,
-    isDead,
-    isDeparted,
-    status: isDead ? 'dead' : isDeparted ? 'left' : status === 'left' ? 'left' : status,
+    id: c.id,
+    name: c.name,
+    role: c.role ?? '',
+    background: c.background ?? '',
+    personality: c.personality ?? '',
+    appearance: c.appearance ?? '',
+    skills: c.skills,
+    hp: c.hp,
+    maxHp: c.maxHp,
+    mp: c.mp,
+    maxMp: c.maxMp,
+    goal: c.goal ?? '',
+    equipped: normalizeInventoryItems(c.equipped),
+    carried: normalizeInventoryItems(c.carried),
+    status,
     loyalty: normalizeCompanionLoyalty(c.loyalty),
     control: normalizeCompanionControl(c.control),
   }
@@ -534,10 +532,8 @@ export function normalizeCompanions(raw) {
     const maxMp = Number.parseInt(String(o.maxMp), 10)
     const statusRaw = typeof o.status === 'string' ? o.status : 'active'
     const statusNorm = statusRaw === 'departed' ? 'left' : statusRaw
-    const isDead = o.isDead === true || statusNorm === 'dead'
-    const isDeparted = o.isDeparted === true || statusNorm === 'left'
     const status = /** @type {SandboxCompanionStatus} */ (
-      isDead ? 'dead' : isDeparted ? 'left' : ['active', 'dead', 'left'].includes(statusNorm) ? statusNorm : 'active'
+      statusNorm === 'dead' || statusNorm === 'left' ? statusNorm : 'active'
     )
     const role = typeof o.role === 'string' ? o.role.trim().slice(0, 50) : ''
     out.push(
@@ -557,8 +553,6 @@ export function normalizeCompanions(raw) {
         control: normalizeCompanionControl(o.control),
         goal: typeof o.goal === 'string' ? o.goal.trim().slice(0, 200) : '',
         status,
-        isDead,
-        isDeparted,
         equipped: normalizeInventoryItems(o.equipped),
         carried: normalizeInventoryItems(o.carried),
       }),
@@ -677,7 +671,7 @@ export function formatNpcArchiveInjectLine(n) {
 /** @param {SandboxCompanion} c */
 export function formatCompanionArchiveInjectLine(c) {
   const comp = applyCompanionDefaults(c)
-  const flag = comp.isDead ? '【已死亡】' : comp.isDeparted ? '【已离队】' : ''
+  const flag = comp.status === 'dead' ? '【已死亡】' : comp.status === 'left' ? '【已离队】' : ''
   return `${comp.name}${flag}
   定位：${comp.role} | 忠诚度：${comp.loyalty}/5 | 控制度：${comp.control}/5
   目标：${comp.goal || '无'}
@@ -1436,6 +1430,7 @@ const SANDBOX_SLOT_FIELDS = [
   'world',
   'meta',
   'companions',
+  'archivedCompanions',
 ]
 
 /** @param {string} key */
@@ -1563,6 +1558,9 @@ function assembleSandboxState(slotIndex) {
     archivedEvents: normalizeArchivedEvents(readJsonKey(getSandboxSlotKey(slotIndex, 'archivedEvents'))),
     eventIndex: normalizeEventIndex(readJsonKey(getSandboxSlotKey(slotIndex, 'eventIndex'))),
     companions: normalizeCompanions(readJsonKey(getSandboxSlotKey(slotIndex, 'companions'))),
+    archivedCompanions: normalizeCompanions(
+      readJsonKey(getSandboxSlotKey(slotIndex, 'archivedCompanions')),
+    ),
     playerInventory: resolvePlayerInventory(
       character,
       readJsonKey(getSandboxSlotKey(slotIndex, 'player-inventory')),
@@ -1582,7 +1580,11 @@ function persistSandboxState(slotIndex, gs) {
   writeJsonKey(getSandboxSlotKey(slotIndex, 'turnSummaries'), gs.turnSummaries ?? [])
   writeJsonKey(getSandboxSlotKey(slotIndex, 'archivedEvents'), gs.archivedEvents ?? [])
   writeJsonKey(getSandboxSlotKey(slotIndex, 'eventIndex'), gs.eventIndex ?? 1)
-  writeJsonKey(getSandboxSlotKey(slotIndex, 'companions'), gs.companions ?? [])
+  writeJsonKey(getSandboxSlotKey(slotIndex, 'companions'), normalizeCompanions(gs.companions ?? []))
+  writeJsonKey(
+    getSandboxSlotKey(slotIndex, 'archivedCompanions'),
+    normalizeCompanions(gs.archivedCompanions ?? []),
+  )
   writeJsonKey(
     getSandboxSlotKey(slotIndex, 'player-inventory'),
     normalizePlayerInventory(gs.playerInventory),
@@ -1638,7 +1640,12 @@ export function listSandboxSlots() {
 
 /** @param {number} slotIndex 1-based */
 export function loadSandboxSlot(slotIndex) {
-  return migrateSandboxState(assembleSandboxState(slotIndex))
+  const state = migrateSandboxState(assembleSandboxState(slotIndex))
+  return {
+    ...state,
+    companions: normalizeCompanions(state.companions),
+    archivedCompanions: normalizeCompanions(state.archivedCompanions),
+  }
 }
 
 const UNDO_SNAPSHOT_FIELD = 'undo-snapshot'
@@ -1756,6 +1763,7 @@ export function resetSandboxStory(slotIndex) {
     world: prev.world,
     prologueComplete: false,
     companions: [],
+    archivedCompanions: [],
   }
   saveSandboxSlot(slotIndex, s)
   clearNpcArchive(slotIndex)

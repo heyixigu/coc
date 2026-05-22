@@ -9,15 +9,18 @@ import {
   saveWorldState,
 } from './sandboxStorage.js'
 import { extractStateChangeJson } from './sandboxValidateGmReply.js'
+import { fillCompanionProfile } from './sandboxCompanionProfiler.js'
 
 /**
  * 应用结构化状态变更对象。
  * @param {object | null} data
  * @param {number} slotIndex
  * @param {number} currentTurn
+ * @param {string} [apiKey]
+ * @param {string} [gmText]
  * @returns {boolean} 是否有变化
  */
-export function applyStateChangeData(data, slotIndex, currentTurn) {
+export function applyStateChangeData(data, slotIndex, currentTurn, apiKey = '', gmText = '') {
   void currentTurn
   if (!data) return false
 
@@ -46,19 +49,78 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
     }
 
     if (Array.isArray(data.companionChanges) && data.companionChanges.length > 0) {
+      const activeCompanions = slot.companions ?? []
+      const archivedCompanions = slot.archivedCompanions ?? []
+
       for (const update of data.companionChanges) {
-        const companion = (slot.companions ?? []).find((c) => c.name === update.name)
-        if (!companion) continue
-        if (typeof update.hp === 'number') companion.hp = update.hp
-        if (typeof update.maxHp === 'number') companion.maxHp = update.maxHp
-        if (typeof update.mp === 'number') companion.mp = update.mp
-        if (typeof update.maxMp === 'number') companion.maxMp = update.maxMp
-        if (update.status) companion.status = update.status
-        if (update.status === 'dead') companion.isDead = true
-        if (update.status === 'departed' || update.status === 'left') companion.isDeparted = true
-        if (Array.isArray(update.equipped)) companion.equipped = update.equipped
-        if (Array.isArray(update.carried)) companion.carried = update.carried
+        if (!update.name) continue
+
+        const newStatus =
+          update.status === 'departed' || update.status === 'left'
+            ? 'left'
+            : update.status === 'dead'
+              ? 'dead'
+              : 'active'
+
+        const activeIdx = activeCompanions.findIndex((c) => c.name === update.name)
+
+        if (activeIdx >= 0) {
+          const companion = activeCompanions[activeIdx]
+          if (typeof update.hp === 'number') companion.hp = update.hp
+          if (typeof update.maxHp === 'number') companion.maxHp = update.maxHp
+          if (typeof update.mp === 'number') companion.mp = update.mp
+          if (typeof update.maxMp === 'number') companion.maxMp = update.maxMp
+          if (update.status) companion.status = newStatus
+          if (Array.isArray(update.equipped)) companion.equipped = update.equipped
+          if (Array.isArray(update.carried)) companion.carried = update.carried
+
+          if (newStatus === 'dead' || newStatus === 'left') {
+            archivedCompanions.push({ ...companion })
+            activeCompanions.splice(activeIdx, 1)
+          }
+        } else {
+          const archivedIdx = archivedCompanions.findIndex((c) => c.name === update.name)
+          if (archivedIdx >= 0) {
+            const archived = archivedCompanions[archivedIdx]
+            if (update.status) archived.status = newStatus
+          } else if (newStatus === 'active') {
+            const worldFlavor = slot.world?.flavor ?? ''
+            const newCompanion = {
+              id: `companion_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+              name: update.name,
+              role: '',
+              background: '',
+              personality: '',
+              appearance: '',
+              skills: {},
+              hp: typeof update.hp === 'number' ? update.hp : 10,
+              maxHp: typeof update.hp === 'number' ? update.hp : 10,
+              mp: typeof update.mp === 'number' ? update.mp : 10,
+              maxMp: typeof update.mp === 'number' ? update.mp : 10,
+              loyalty: 3,
+              control: 0,
+              goal: '',
+              status: 'active',
+              equipped: Array.isArray(update.equipped) ? update.equipped : [],
+              carried: Array.isArray(update.carried) ? update.carried : [],
+            }
+            activeCompanions.push(newCompanion)
+
+            if (apiKey) {
+              void fillCompanionProfile({
+                apiKey,
+                slotIndex,
+                companionName: update.name,
+                worldFlavor,
+                gmContext: gmText,
+              })
+            }
+          }
+        }
       }
+
+      slot.companions = activeCompanions
+      slot.archivedCompanions = archivedCompanions
       slotDirty = true
       changed = true
     }

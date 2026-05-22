@@ -1,3 +1,4 @@
+import React from 'react'
 import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
 
 /**
@@ -16,6 +17,7 @@ import { SANDBOX_SKILL_NAMES } from '../config/sandbox_judge_prompt.js'
  *   character: SandboxCharacter,
  *   playerInventory: SandboxPlayerInventory,
  *   companions: SandboxCompanion[],
+ *   archivedCompanions: SandboxCompanion[],
  *   statCard: import('react').ReactNode,
  *   minimapSlot?: import('react').ReactNode,
  *   labels: Record<string, string>,
@@ -28,13 +30,14 @@ export function SandboxLeftPanelTabs({
   character,
   playerInventory,
   companions,
+  archivedCompanions = [],
   statCard,
   minimapSlot = null,
   labels,
   safeSkillValue,
 }) {
   const activeCompanions = companions.filter((c) => c.status === 'active')
-  const hasCompanions = activeCompanions.length > 0
+  const hasCompanions = activeCompanions.length > 0 || archivedCompanions.length > 0
 
   return (
     <>
@@ -116,9 +119,46 @@ export function SandboxLeftPanelTabs({
               {idx < activeCompanions.length - 1 ? <div className="companion-divider" /> : null}
             </div>
           ))}
+          {archivedCompanions.length > 0 ? (
+            <ArchivedCompanionsSection archivedCompanions={archivedCompanions} />
+          ) : null}
         </div>
       ) : null}
     </>
+  )
+}
+
+/**
+ * @param {{ archivedCompanions: SandboxCompanion[] }} props
+ */
+function ArchivedCompanionsSection({ archivedCompanions }) {
+  const [expanded, setExpanded] = React.useState(false)
+  return (
+    <div className="archived-companions-section">
+      <button
+        type="button"
+        className="archived-companions-toggle"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? '▲' : '▼'} 已离队／已死亡（{archivedCompanions.length}）
+      </button>
+      {expanded ? (
+        <div className="archived-companions-list">
+          {archivedCompanions.map((c) => (
+            <div key={c.id} className="companion-block companion-block--archived">
+              <div className="companion-name">
+                {c.name}
+                <span className="companion-archive-badge">
+                  {c.status === 'dead' ? '已死亡' : '已离队'}
+                </span>
+              </div>
+              {c.role ? <div className="companion-role muted small">{c.role}</div> : null}
+              {c.background ? <div className="companion-bg muted small">{c.background}</div> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
 

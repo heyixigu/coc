@@ -162,6 +162,9 @@ export default function SandboxGameApp({
   )
   const [character, setCharacter] = useState(() => initial.character)
   const [companions, setCompanions] = useState(() => initial.companions ?? [])
+  const [archivedCompanions, setArchivedCompanions] = useState(
+    () => initial.archivedCompanions ?? [],
+  )
   const [playerInventory, setPlayerInventory] = useState(
     () => initial.playerInventory ?? defaultPlayerInventory(),
   )
@@ -280,6 +283,7 @@ export default function SandboxGameApp({
     const slot = loadSandboxSlot(slotIndex)
     setPlayerInventory(slot.playerInventory ?? defaultPlayerInventory())
     setCompanions(slot.companions ?? [])
+    setArchivedCompanions(slot.archivedCompanions ?? [])
     if (slot.character) {
       setCharacter({
         ...slot.character,
@@ -832,6 +836,7 @@ export default function SandboxGameApp({
       character={character}
       playerInventory={playerInventory}
       companions={companions}
+      archivedCompanions={archivedCompanions}
       statCard={statCard}
       labels={panelLabels}
       safeSkillValue={safeSkillValue}
