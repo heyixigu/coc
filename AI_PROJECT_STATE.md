@@ -1,6 +1,6 @@
 # AI Project State
 
-生成时间：2026-05-22（末次同步：废弃文件清理、`applyStateChangeData` 单次读写）
+生成时间：2026-05-22
 
 本文档供新的 AI 对话快速接手项目。优先级：若本文档与源码冲突，以源码为准；若与用户最新指令冲突，以用户最新指令为准。
 
@@ -915,7 +915,6 @@ NPC、敌人或环境反应；无则写“无”。
 
 - GM 格式异常：历史根因是主 GM 同时写五段叙事 + 【状态变更】JSON。当前为五段主回复 + 独立 `sandboxStateChangeExtractor`；长上下文下五段格式仍可能偶发失败（`sandboxGmTurn` 会重试一次）。
 - 序幕「未选择存档」：曾由 `selectedSlot` 上限（CoC 2 槽 vs 沙盒 4 槽）与槽位未锁定引起；已用 `normalizeAppSelectedSlot`、`normalizeSandboxSlotIndex`、`lockedSlotRef` 缓解。
-- `SandboxCompanionStatus` typedef 为 `'active' | 'dead' | 'left'`，运行时状态提取常用 `departed` / `isDeparted`，需后续统一。
 - `sandboxFactExtractor.js` prompt 仍写“NPC/任务/世界/物品/同伴状态已由【状态变更】段处理”，实际背包/同伴等由 `sandboxStateChangeExtractor` 处理，事实提取器只管事实/时间线/记忆图。
 
 ### 已修复（文档记录）
@@ -954,10 +953,8 @@ NPC、敌人或环境反应；无则写“无”。
 
 | 原路径 | 原因 |
 |--------|------|
-| `src/sandbox/sandboxNpcExtractor.js` | 旧 NPC 提取，已由 `sandboxFactExtractor` + `sandboxStateChangeExtractor` 替代 |
 | `src/sandbox/config/sandbox_opening_prompt.js` | 未引用；开场由 `buildSandboxOpeningUserMessage` 承担 |
 | `src/screens/SandboxPlaceholderScreen.jsx` | 沙盒占位屏，主流程走 `SandboxModeSelectScreen` / `sandboxPrologue` |
-| `src/sandbox/sandboxInventoryExtract.js` | 背包提取已并入状态变更提取器；`sandboxFactExtractor` 已移除对其 import |
 
 ### 地图相关残留
 
@@ -971,9 +968,7 @@ NPC、敌人或环境反应；无则写“无”。
 
 ### Deprecated wrapper
 
-- `sandboxFactExtractor.js`
-  - `extractFactsAndEvents(opts)`：`@deprecated`，仅转发到 `extractAllStateUpdates(opts)`。
-  - `extractAndUpdateFacts(opts)`：`@deprecated`，仅转发到 `extractAllStateUpdates(opts)`。
+- `sandboxFactExtractor.js` 仍保留 `extractFactsAndEvents`、`extractAndUpdateFacts` 两个导出，均已标注 `@deprecated`，仅转发到 `extractAllStateUpdates(opts)`。
 
 ### `keyItems`
 
@@ -1077,6 +1072,9 @@ buildSandboxGmPrompt(
 - `applyStateChangeData`：主存档 `playerStatus`/`playerInventory`/`companionChanges` 单次 load + 单次 save；`console.warn` 替代静默 catch。
 - 废弃清理：删除 `sandboxNpcExtractor.js`、`sandbox_opening_prompt.js`、`SandboxPlaceholderScreen.jsx`、`sandboxInventoryExtract.js`。
 - 源码规模：`src/` 下约 **92** 个 `.js`/`.jsx` 文件（不含 `.css`）。
+- 代码整理：删除废弃文件 sandboxNpcExtractor.js、sandboxInventoryExtract.js、sandbox_opening_prompt.js、SandboxPlaceholderScreen.jsx
+- 同伴数值修复：applyStateChangeData 改为一次 load/一次 save，修复多次读写导致数值消失的问题
+- 同伴状态字段统一：sandboxStateChangeParser 的 departed 判断补全 left；提取器 prompt 枚举统一为 active|dead|left
 
 ## 14. 源码文件清单（`src/`，仅 .js / .jsx）
 

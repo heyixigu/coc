@@ -55,7 +55,7 @@ export function applyStateChangeData(data, slotIndex, currentTurn) {
         if (typeof update.maxMp === 'number') companion.maxMp = update.maxMp
         if (update.status) companion.status = update.status
         if (update.status === 'dead') companion.isDead = true
-        if (update.status === 'departed') companion.isDeparted = true
+        if (update.status === 'departed' || update.status === 'left') companion.isDeparted = true
         if (Array.isArray(update.equipped)) companion.equipped = update.equipped
         if (Array.isArray(update.carried)) companion.carried = update.carried
       }

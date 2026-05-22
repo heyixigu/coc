@@ -105,7 +105,7 @@ export async function extractAndApplyStateChange({
 - locationChanges: [{"name":"","status":"","dangerLevel":1,"controlledBy":"","isAccessible":true,"accessNote":"","isNew":true}]
 - environmentChange: {"weather":"","timeOfDay":"清晨|上午|正午|下午|傍晚|夜晚|深夜","season":"春|夏|秋|冬","dayPassed":false}
 - playerInventory: {"equipped":[{"name":"","description":""}],"carried":[{"name":"","description":"","quantity":1}]}
-- companionChanges: [{"name":"","hp":0,"maxHp":0,"mp":0,"maxMp":0,"status":"active|dead|departed","equipped":[],"carried":[]}]
+- companionChanges: [{"name":"","hp":0,"maxHp":0,"mp":0,"maxMp":0,"status":"active|dead|left","equipped":[],"carried":[]}]
 - playerStatus: {"hp":0,"maxHp":0,"mp":0,"maxMp":0}
 
 规则：
