@@ -44,6 +44,9 @@ export function applyStateChangeData(data, slotIndex, currentTurn, apiKey = '', 
         equipped: Array.isArray(data.playerInventory.equipped) ? data.playerInventory.equipped : [],
         carried: Array.isArray(data.playerInventory.carried) ? data.playerInventory.carried : [],
       }
+      if (data.playerInventory && slot.character) {
+        slot.character.items = (slot.playerInventory?.carried ?? []).map((i) => i.name)
+      }
       slotDirty = true
       changed = true
     }

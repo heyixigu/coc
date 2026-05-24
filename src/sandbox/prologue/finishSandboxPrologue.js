@@ -54,8 +54,24 @@ export function finishSandboxPrologue({ slotIndex, character, world, opening, op
     companions = []
   }
 
+  const initialItemNames = Array.isArray(characterWithHpMp.items)
+    ? characterWithHpMp.items.filter((n) => typeof n === 'string' && n.trim())
+    : []
+  let playerInventory = {
+    equipped: [],
+    carried: initialItemNames.map((name) => ({
+      name: name.trim(),
+      description: '',
+      quantity: 1,
+    })),
+  }
+  const characterForSave = {
+    ...characterWithHpMp,
+    items: playerInventory.carried.map((i) => i.name),
+  }
+
   const state = {
-    character: characterWithHpMp,
+    character: characterForSave,
     world,
     messages: [
       {
@@ -73,6 +89,7 @@ export function finishSandboxPrologue({ slotIndex, character, world, opening, op
     archivedEvents: [],
     eventIndex: 1,
     companions,
+    playerInventory,
   }
 
   clearCustomWorldbook(slot)
@@ -89,6 +106,7 @@ export function finishSandboxPrologue({ slotIndex, character, world, opening, op
   }
   if (applied.playerInventory) state.playerInventory = applied.playerInventory
   if (applied.companions?.length) state.companions = applied.companions
+  state.character.items = (state.playerInventory?.carried ?? []).map((i) => i.name)
 
   saveSandboxSlot(slot, state)
 

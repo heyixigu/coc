@@ -1,4 +1,3 @@
-import { SANDBOX_SKILL_NAMES } from './sandbox_judge_prompt.js'
 import { getWorldById } from './sandbox_worlds.js'
 import { getWorldbookInject } from '../../worldbook/worldbookMatcher.js'
 
@@ -33,6 +32,22 @@ export function buildSandboxArchivedEventsContext(archivedEvents) {
   const body = archivedEvents.map((e) => e.summary).join('\n\n')
   return `以下是本次游戏的历史事件档案，供你参考，无需在回复中提及：
 ${body}`
+}
+
+/**
+ * 构造封档摘要 user 消息。archivedEvents 为空时返回 null。
+ * @param {SandboxArchivedEventEntry[]} archivedEvents
+ * @returns {{ role: 'user', content: string } | null}
+ */
+export function buildSandboxArchivedEventsMessage(archivedEvents) {
+  if (!Array.isArray(archivedEvents) || archivedEvents.length === 0) return null
+  const body = archivedEvents.map((e) => e.summary).join('\n\n')
+  return {
+    role: 'user',
+    content: `【历史事件档案】
+以下是本次游戏的历史归档事件，供你参考，无需在回复中提及：
+${body}`,
+  }
 }
 
 /**
@@ -193,24 +208,36 @@ ${body}`
 }
 
 /**
+ * @param {import('../sandboxStorage.js').SandboxInventoryItem[]} items
+ * @returns {string}
+ */
+function formatSnapshotInventoryItems(items) {
+  if (!Array.isArray(items) || items.length === 0) return ''
+  return items
+    .map((i) => (i.quantity && i.quantity > 1 ? `${i.name}x${i.quantity}` : i.name))
+    .join('、')
+}
+
+/**
+ * 构造当前状态快照 user 消息。所有内容均为空时返回 null。
  * @param {SandboxCharacter} character
  * @param {SandboxWorld} world
- * @param {SandboxArchivedEventEntry[]} [archivedEvents]
- * @param {SandboxNpcEntry[]} [relevantNpcs]
- * @param {SandboxCompanion[]} [companions]
- * @param {SandboxFactEntry[]} [activeFacts]
- * @param {SandboxTimelineEvent[]} [recentEvents]
- * @param {SandboxWorldState} [worldState]
- * @param {SandboxQuestState} [questState]
- * @param {SandboxNpcMemoryGraph} [relevantMemoryGraph]
- * @param {number | null} [slotIndex] 1-based，用于世界书与侧存储
- * @param {string} [lastPlayerInput] 本轮或最近玩家输入，供世界书关键词扫描
- * @param {string} [lastGmReply] 上一轮 GM 回复，供世界书关键词扫描
+ * @param {SandboxNpcEntry[]} relevantNpcs
+ * @param {SandboxCompanion[]} companions
+ * @param {SandboxFactEntry[]} activeFacts
+ * @param {SandboxTimelineEvent[]} recentEvents
+ * @param {SandboxWorldState} worldState
+ * @param {SandboxQuestState} questState
+ * @param {SandboxNpcMemoryGraph} relevantMemoryGraph
+ * @param {number | null} slotIndex
+ * @param {string} lastPlayerInput
+ * @param {string} lastGmReply
+ * @param {import('../sandboxStorage.js').SandboxPlayerInventory} [playerInventory]
+ * @returns {{ role: 'user', content: string } | null}
  */
-export function buildSandboxGmPrompt(
+export function buildSandboxStateSnapshotMessage(
   character,
   world,
-  archivedEvents = [],
   relevantNpcs = [],
   companions = [],
   activeFacts = [],
@@ -226,10 +253,73 @@ export function buildSandboxGmPrompt(
   slotIndex = null,
   lastPlayerInput = '',
   lastGmReply = '',
+  playerInventory = undefined,
 ) {
-  const items =
-    character.items.length > 0 ? character.items.join('、') : '无'
+  const inv = playerInventory ?? { equipped: [], carried: [] }
+  const hasInv = inv.equipped.length > 0 || inv.carried.length > 0
+  const legacyItems = Array.isArray(character?.items) ? character.items : []
+  const equippedText = hasInv ? formatSnapshotInventoryItems(inv.equipped) || '无' : '无'
+  const carriedText = hasInv
+    ? formatSnapshotInventoryItems(inv.carried) || '无'
+    : legacyItems.join('、') || '无'
 
+  const playerStatusLine = `主角：${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
+物品（装备）：${equippedText}
+物品（携带）：${carriedText}`
+
+  const scanText = `${lastPlayerInput} ${lastGmReply}`.trim()
+  const worldbookInject = world?.id
+    ? getWorldbookInject(scanText || (world.id === 'custom' ? '开局' : ''), world.id, slotIndex)
+    : ''
+
+  const npcContext = buildSandboxNpcContext(relevantNpcs)
+  const companionContext = buildSandboxCompanionContext(companions)
+  const factContext = buildSandboxFactContext(activeFacts)
+  const timelineContext = buildSandboxTimelineContext(recentEvents)
+  const worldStateContext = buildSandboxWorldStateContext(worldState)
+  const questContext = buildSandboxQuestContext(questState)
+  const memoryContext = buildSandboxMemoryContext(relevantMemoryGraph)
+
+  const parts = [
+    '【当前状态快照】',
+    playerStatusLine,
+    companionContext,
+    npcContext,
+    factContext,
+    timelineContext,
+    worldStateContext,
+    questContext,
+    memoryContext,
+    worldbookInject ? `【世界书】\n${worldbookInject}` : '',
+  ].filter(Boolean)
+
+  const hasContent =
+    companionContext ||
+    npcContext ||
+    factContext ||
+    timelineContext ||
+    worldStateContext ||
+    questContext ||
+    memoryContext ||
+    worldbookInject ||
+    character.hp !== character.maxHp ||
+    character.mp !== character.maxMp ||
+    equippedText !== '无' ||
+    carriedText !== '无'
+
+  if (!hasContent) return null
+
+  return {
+    role: 'user',
+    content: parts.join('\n\n'),
+  }
+}
+
+/**
+ * @param {SandboxCharacter} character
+ * @param {SandboxWorld} world
+ */
+export function buildSandboxGmPrompt(character, world) {
   const fullWorld = getWorldById(world.id) ?? world
   const regionInfo = fullWorld.regions?.find((r) => r.id === character.regionId)
   const raceInfo = fullWorld.raceOptions?.find((r) => r.id === character.raceId)
@@ -258,30 +348,11 @@ ${raceInfo ? `种族特点：${raceInfo.npcBaseAttitude}` : ''}
 ${regionRaceBlock}
 背景：${character.background}
 技能：战斗${character.skills.战斗 ?? 5} 交涉${character.skills.交涉 ?? 5} 感知${character.skills.感知 ?? 5} 潜行${character.skills.潜行 ?? 5} 学识${character.skills.学识 ?? 5} 意志${character.skills.意志 ?? 5} 体魄${character.skills.体魄 ?? 5}
-HP：${character.hp}/${character.maxHp} MP：${character.mp}/${character.maxMp}
-物品：${items}
 `
-
-  const scanText = `${lastPlayerInput} ${lastGmReply}`.trim()
-  const worldbookInject = world?.id
-    ? getWorldbookInject(
-        scanText || (world.id === 'custom' ? '开局' : ''),
-        world.id,
-        slotIndex,
-      )
-    : ''
-  const npcContext = buildSandboxNpcContext(relevantNpcs)
-  const companionContext = buildSandboxCompanionContext(companions)
-  const factContext = buildSandboxFactContext(activeFacts)
-  const timelineContext = buildSandboxTimelineContext(recentEvents)
-  const worldStateContext = buildSandboxWorldStateContext(worldState)
-  const questContext = buildSandboxQuestContext(questState)
-  const memoryContext = buildSandboxMemoryContext(relevantMemoryGraph)
 
   const base = `【身份】
 你是沙盒跑团模式的守密人（GM / KP）。叙事风格须与当前世界观一致，语气沉浸、连贯。
 本局世界观：${world.name}（${world.subtitle}）
-${npcContext ? `${npcContext}\n` : ''}${companionContext ? `${companionContext}\n` : ''}
 【世界观铁律】
 你必须严格在上述世界观边界内进行叙事。以下行为是被明确禁止的：
 - 引入克苏鲁神话元素、不可名状存在、宇宙级恐惧
@@ -310,9 +381,8 @@ ${npcContext ? `${npcContext}\n` : ''}${companionContext ? `${companionContext}\
 - 「【主角行为】」：本轮玩家行动在叙事中的展开（若已预掷骰，须体现检定后果）。
 - 「【他人行为】」：NPC、敌人或环境的反应；若无则写「无」。
 - 「【当前状态】」：严格按下列格式（角色名须与主角姓名一致，HP/MP 须写数字）：
-${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${character.maxMp}
-物品：无
-（有物品时写「物品：A、B、C」，无物品写「物品：无」）
+角色名 HP 当前值/最大值 MP 当前值/最大值
+物品：无（有物品时写「物品：A、B、C」）
 伙伴状态（须遵守）：
 - 当前 active 伙伴最多 2 人；已满时叙事中体现无法再招募，且不要输出第三个 [新伙伴:…]
 - 每位 active 伙伴每轮必须在【当前状态】中输出一行
@@ -343,13 +413,10 @@ ${character.name} HP ${character.hp}/${character.maxHp} MP ${character.mp}/${cha
 
 【投骰】
 当对话中出现 [ROLL_RESULT:技能名:数值:判定] 后，再根据骰点继续写后果。判定为：大成功、成功、失败、大失败。`
-  const archiveCtx = buildSandboxArchivedEventsContext(archivedEvents)
-  const body = archiveCtx ? `${base}\n\n${archiveCtx}` : base
 
   return `${world.flavor}
-${worldbookInject}
 ${characterContext}
-${factContext ? `${factContext}\n` : ''}${timelineContext ? `${timelineContext}\n` : ''}${worldStateContext ? `${worldStateContext}\n` : ''}${questContext ? `${questContext}\n` : ''}${memoryContext ? `${memoryContext}\n` : ''}${body}`
+${base}`
 }
 
 

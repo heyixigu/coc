@@ -229,21 +229,7 @@ export default function SandboxPrologue({ apiKey, slotIndex, onComplete, onNavig
 
     const character = buildCharacter()
     const userContent = buildSandboxOpeningUserMessage(character, selectedWorld)
-    const systemText = buildSandboxGmPrompt(
-      character,
-      selectedWorld,
-      [],
-      [],
-      [],
-      [],
-      [],
-      undefined,
-      undefined,
-      undefined,
-      effectiveSlotIndex,
-      userContent,
-      '',
-    )
+    const systemText = buildSandboxGmPrompt(character, selectedWorld)
 
     try {
       const result = await fetchValidatedSandboxGmReply({

@@ -34,7 +34,9 @@
 - 沙盒状态变更：新增独立 API 调用 `sandboxStateChangeExtractor.js` 提取并应用 NPC/任务/地点/环境/背包/同伴/HPMP。
 - 沙盒事实/时间线/记忆图：`extractAllStateUpdates` 后台提取事实库、事件时间线、NPC 记忆图谱。
 - 沙盒世界书：内置世界书 + 自定义条目，支持按关键词注入。
-- 沙盒侧栏：角色、背包、伙伴、NPC、任务、世界状态、世界书入口。
+- 沙盒侧栏：角色、背包、活跃伙伴、已归档伙伴（离队/死亡可折叠查看）、NPC、任务、世界状态、世界书入口。
+- 沙盒同伴归档：`companions` 仅存 `status: active`；`dead`/`left` 迁入 `archivedCompanions`；侧栏分开展示。
+- 沙盒新同伴画像：`sandboxCompanionProfiler.js` 在状态提取新增同伴后异步补全 role/背景/性格/外貌/目标。
 - 沙盒时间线弹窗：展示事件时间线。
 - 沙盒撤回：`playerTurnCount > 1` 后可保存/恢复撤回快照。
 - 沙盒封档：将事件归档，清理部分阶段性提取状态。
@@ -135,12 +137,13 @@
 - `src/sandbox/SandboxModeSelectScreen.jsx`：沙盒模式入口屏。
 - `src/sandbox/SandboxModeSelectScreen.css`：沙盒模式入口样式。
 - `src/sandbox/sandboxStorage.js`：沙盒主存档、侧存储、撤回、导入导出。
-- `src/sandbox/sandboxMigration.js`：沙盒数据迁移与补字段。
+- `src/sandbox/sandboxMigration.js`：沙盒数据迁移（当前 `CURRENT_VERSION = 3`：v1 同伴档案字段、v2 活跃/归档同伴拆分、v3 `playerInventory` 从 `character.items` 回填）。
 - `src/sandbox/sandboxPlayerTurn.js`：沙盒玩家回合主流程，调用 Judge、骰子、GM、后台提取。
 - `src/sandbox/sandboxGmTurn.js`：沙盒 GM 非流式生成与五段格式校验。
 - `src/sandbox/sandboxValidateGmReply.js`：沙盒 GM 五段格式校验；仍保留旧【状态变更】JSON 提取工具供兼容代码使用。
 - `src/sandbox/sandboxStateChangeExtractor.js`：独立 API 提取状态变更 JSON，并应用到存储。
-- `src/sandbox/sandboxStateChangeParser.js`：`applyStateChangeData` 应用状态变更；主存档字段一次 load/一次 save；NPC/任务/世界走独立 key；兼容旧 GM 内【状态变更】。
+- `src/sandbox/sandboxStateChangeParser.js`：`applyStateChangeData` 应用状态变更；同伴 `dead`/`left` 移入 `archivedCompanions`、新同伴占位后可选触发画像补全；主存档一次 load/一次 save；NPC/任务/世界走独立 key；兼容旧 GM 内【状态变更】。
+- `src/sandbox/sandboxCompanionProfiler.js`：新同伴加入后独立 API 异步写入 role/background/personality/appearance/goal；失败仅 `console.warn`。
 - `src/sandbox/sandboxFactExtractor.js`：仅事实库、事件时间线、NPC 记忆图谱后台提取（不再处理背包）；保留 deprecated wrapper。
 - `src/sandbox/sandboxExtractRollback.js`：重生成时回滚本轮事实/时间线/记忆图。
 - `src/sandbox/sandboxArchiveEvent.js`：沙盒封档，归档事件并清理阶段性时间线。
@@ -172,7 +175,7 @@
 
 ### `src/sandbox/components/`
 
-- `src/sandbox/components/SandboxSidePanels.jsx`：沙盒左右侧栏 Tabs，显示状态、背包、伙伴、NPC、任务、世界书等。
+- `src/sandbox/components/SandboxSidePanels.jsx`：沙盒左右侧栏 Tabs；伙伴 Tab 显示活跃同伴 + `ArchivedCompanionsSection` 折叠区（已离队/已死亡）。
 - `src/sandbox/components/SandboxStatCard.jsx`：沙盒 HP/MP 等状态卡片。
 - `src/sandbox/components/TimelineOverlay.jsx`：事件时间线弹窗。
 - `src/sandbox/components/TimelineOverlay.css`：时间线弹窗样式。
@@ -326,7 +329,11 @@
   - `playerInventory`
   - `companionChanges`
   - `playerStatus`
-- 应用函数：`applyStateChangeData`（`sandboxStateChangeParser.js`）。
+- 应用函数：`applyStateChangeData(data, slotIndex, currentTurn, apiKey?, gmText?)`（`sandboxStateChangeParser.js`）；`sandboxStateChangeExtractor` 传入 `apiKey` 与 GM 原文供新同伴画像补全。
+- **同伴变更逻辑**：
+  - `companions` 列表仅保留 `status === 'active'` 的同伴。
+  - `companionChanges` 中 `status` 为 `dead` 或 `left`（兼容 `departed`）时，从活跃列表移除并 `push` 到 `archivedCompanions`。
+  - 归档列表中同名仅更新 `status`；活跃/归档均不存在且 `status` 为 `active` 时创建占位同伴，有 `apiKey` 则 `void fillCompanionProfile(...)` 异步补档案。
 - **主存档写入**：`playerStatus` / `playerInventory` / `companionChanges` 在同一 `loadSandboxSlot` 对象上修改后，**只调用一次** `saveSandboxSlot`，避免多次读写互相覆盖导致同伴数值丢失。
 - **侧存储写入**：`npcChanges`、`questChanges`、`locationChanges`/`environmentChange` 仍各自 `load/save` 独立 localStorage key。
 - 异常：`applyStateChangeData` 各块 `catch` 使用 `console.warn('applyStateChangeData [slot|npcChanges|...]:', e)`，不静默吞错。
@@ -439,6 +446,7 @@ prologueComplete
 world
 meta
 companions
+archivedCompanions
 player-inventory
 ```
 
@@ -463,10 +471,21 @@ sandbox-save-slot-${slotIndex}
   archivedEvents: SandboxArchivedEventEntry[],
   eventIndex: number,
   companions: SandboxCompanion[],
+  archivedCompanions: SandboxCompanion[],
   playerInventory: SandboxPlayerInventory,
   __version?: number
 }
 ```
+
+**数据版本迁移**（`sandboxMigration.js`，`CURRENT_VERSION = 3`）：
+
+| 版本 | 变更 |
+|------|------|
+| v1 | 同伴补全 `background`/`personality`/`appearance`/`loyalty`/`control`/`goal` 等默认字段 |
+| v2 | 移除同伴 `isDead`/`isDeparted` 依赖，按 `status` 拆分：`companions` 仅 active，`dead`/`left` 并入 `archivedCompanions` |
+| v3 | 若 `playerInventory` 为空且 `character.items` 有数据，回填 `carried` 并同步 `character.items` |
+
+`loadSandboxSlot` 返回前会执行 `migrateSandboxState`，并对 `companions` / `archivedCompanions` 再 `normalizeCompanions`。
 
 ### 沙盒侧存储 keys
 
@@ -714,8 +733,6 @@ type SandboxCompanion = {
   control: number,
   goal: string,
   status: SandboxCompanionStatus,
-  isDead: boolean,
-  isDeparted: boolean,
   equipped: SandboxInventoryItem[],
   carried: SandboxInventoryItem[]
 }
@@ -751,10 +768,13 @@ type SandboxState = {
   archivedEvents: SandboxArchivedEventEntry[],
   eventIndex: number,
   companions: SandboxCompanion[],
+  archivedCompanions: SandboxCompanion[],
   playerInventory: SandboxPlayerInventory,
   __version?: number
 }
 ```
+
+说明：同伴不再使用 `isDead` / `isDeparted` 字段；离队/死亡仅通过 `status: 'dead' | 'left'` 表达，归档后存于 `archivedCompanions`。NPC 档案仍保留 `isDead`。
 
 ### 沙盒世界与世界书类型
 
@@ -908,7 +928,8 @@ NPC、敌人或环境反应；无则写“无”。
 - 无变化输出 `{}`。
 - 只写本轮实际变化字段。
 - `playerInventory` 是完整快照。
-- `companionChanges` 中单个同伴必须包含完整当前 HP/MP/状态。
+- `companionChanges` 中单个同伴必须包含完整当前 HP/MP/状态；`status` 枚举为 `active` | `dead` | `left`（提取器兼容 `departed` → `left`）。
+- 新同伴（活跃列表中不存在）由程序创建占位记录；详细档案由 `sandboxCompanionProfiler` 异步补全，不阻塞主流程。
 - `environmentChange.dayPassed=true` 只在明确过夜/次日时使用。
 
 ## 8. 已知问题
@@ -921,13 +942,16 @@ NPC、敌人或环境反应；无则写“无”。
 
 - 时间线不更新：已改为 GM 消息 `persistSandboxToSlot` 后再跑 `extractAllStateUpdates`，并传入 `playerText`。
 - 同伴数值被覆盖消失：`applyStateChangeData` 已改为单次 load + 单次 save 主存档块。
+- 同伴归档模型：`companions` / `archivedCompanions` 拆分 + 迁移 v2；侧栏 `ArchivedCompanionsSection`；`SandboxCompanion` 去掉 `isDead`/`isDeparted`。
+- 新同伴画像：`sandboxCompanionProfiler.js` 在状态提取创建占位同伴后异步补全档案。
 
 ## 9. 未完成的功能
 
 - Quest State 升级：任务目标 ID/标题匹配仍较脆弱，`UpdatedQuestExtract` 用 id，但状态变更更新任务用 title。
 - NPC Memory Graph 升级：关系图仍是基础节点/边，缺少更强的关系强度、时间衰减、冲突合并。
-- playerInventory 升级：主角色 `items: string[]` 仍与结构化 `playerInventory` 并存，需要彻底迁移。
-- companions 档案升级：伙伴状态、背包、离队/死亡字段需要统一归档模型。
+- playerInventory 升级：v3 迁移已回填旧 `character.items`，但运行时仍双写 `items` 与 `playerInventory`，需观察是否完全统一写入路径。
+- 同伴画像与技能：新同伴占位时 `skills` 为空，画像 API 不补技能表；归档同伴不可再回到活跃列表（除非状态提取再次 `active` 且走新建分支）。
+- `sandboxStateChangeExtractor` 快照仍输出 `isDead`/`isDeparted`（只读兼容旧数据），与存储模型不一致，可后续清理 prompt。
 - 世界书 CoC 对接：当前世界书只接入沙盒。
 - GM 格式异常修复：主 GM 已拆出状态 JSON，但仍需继续观察五段格式在长上下文中的稳定性。
 
@@ -1071,20 +1095,23 @@ buildSandboxGmPrompt(
 - 时间线：`extractAllStateUpdates` 在消息保存后触发，并传入 `playerText`。
 - `applyStateChangeData`：主存档 `playerStatus`/`playerInventory`/`companionChanges` 单次 load + 单次 save；`console.warn` 替代静默 catch。
 - 废弃清理：删除 `sandboxNpcExtractor.js`、`sandbox_opening_prompt.js`、`SandboxPlaceholderScreen.jsx`、`sandboxInventoryExtract.js`。
-- 源码规模：`src/` 下约 **92** 个 `.js`/`.jsx` 文件（不含 `.css`）。
+- 源码规模：`src/` 下约 **93** 个 `.js`/`.jsx` 文件（不含 `.css`）。
 - 代码整理：删除废弃文件 sandboxNpcExtractor.js、sandboxInventoryExtract.js、sandbox_opening_prompt.js、SandboxPlaceholderScreen.jsx
 - 同伴数值修复：applyStateChangeData 改为一次 load/一次 save，修复多次读写导致数值消失的问题
 - 同伴状态字段统一：sandboxStateChangeParser 的 departed 判断补全 left；提取器 prompt 枚举统一为 active|dead|left
+- 同伴归档（v2）：`archivedCompanions` 字段与 localStorage key；`SandboxSidePanels` 折叠展示；`resetSandboxStory` 清空归档列表
+- 数据迁移 v3：`playerInventory` 从旧 `character.items` 回填
+- 新文件 `sandboxCompanionProfiler.js`：`applyStateChangeData` / `extractAndApplyStateChange` 传入 `apiKey`、`gmText` 触发异步画像
 
 ## 14. 源码文件清单（`src/`，仅 .js / .jsx）
 
-共 92 个文件，按目录分组（与 §2 职责说明对照使用）：
+共 93 个文件，按目录分组（与 §2 职责说明对照使用）：
 
 **根目录（27）**：`App.jsx`, `GameApp.jsx`, `main.jsx`, `deepseek.js`, `storage.js`, `playerTurn.js`, `gmTurn.js`, `gmRollLoop.js`, `validateGmReply.js`, `typewriter.js`, `rollingSummary.js`, `turnSummary.js`, `archiveEvent.js`, `startActOne.js`, `resolveTurnRolls.js`, `rollMarker.js`, `dice.js`, `cocJudge.js`, `skillJudge.js`, `playerSkills.js`, `characterInit.js`, `parseGmStatus.js`, `parseGmItems.js`, `parseScenarios.js`, `itemInject.js`, `syncInventoryFromGm.js`, `syncRosterFromGm.js`
 
 **config（10）**、**components（8）**、**hooks（4）**、**prologue（3）**、**screens（4）**、**worldbook（4）**
 
-**sandbox（32）**：含 `SandboxGameApp.jsx`, `sandboxPlayerTurn.js`, `sandboxFactExtractor.js`, `sandboxStateChangeExtractor.js`, `sandboxStateChangeParser.js`, `sandboxParseGmStatus.js`, `sandboxStorage.js`, `prologue/*`, `config/*`, `components/*` 等。
+**sandbox（33）**：含 `SandboxGameApp.jsx`, `sandboxPlayerTurn.js`, `sandboxFactExtractor.js`, `sandboxStateChangeExtractor.js`, `sandboxStateChangeParser.js`, `sandboxCompanionProfiler.js`, `sandboxParseGmStatus.js`, `sandboxStorage.js`, `sandboxMigration.js`, `prologue/*`, `config/*`, `components/*` 等。
 
 完整路径可用 PowerShell 列出：
 

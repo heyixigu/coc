@@ -3,10 +3,11 @@ import { buildPreRollSystemContent } from '../resolveTurnRolls.js'
 import { SANDBOX_JUDGE_SYSTEM_PROMPT } from './config/sandbox_judge_prompt.js'
 import { SANDBOX_ARCHIVE_CMD } from './sandboxArchiveEvent.js'
 import {
+  buildSandboxArchivedEventsMessage,
   buildSandboxGmPrompt,
+  buildSandboxStateSnapshotMessage,
   SANDBOX_PRE_ROLL_ADDENDUM,
 } from './config/sandbox_system_prompt.js'
-import { buildSandboxContextMessage } from './sandboxContextInject.js'
 import { resolveSandboxSkillChecks } from './sandboxDice.js'
 import { buildSandboxGmApiChain } from './sandboxMessageChain.js'
 import { extractAllStateUpdates } from './sandboxFactExtractor.js'
@@ -17,6 +18,7 @@ import {
   loadNpcArchive,
   loadNpcMemoryGraph,
   loadQuestState,
+  loadSandboxSlot,
   loadWorldState,
 } from './sandboxStorage.js'
 import { parseSandboxJudgeSkillsJson } from './sandboxSkillJudge.js'
@@ -142,7 +144,7 @@ export async function runSandboxPlayerTurn({
     ],
   })
 
-  let judgeChecks = []
+  let judgeChecks
   try {
     judgeChecks = parseSandboxJudgeSkillsJson(judgeRaw)
   } catch {
@@ -151,12 +153,10 @@ export async function runSandboxPlayerTurn({
 
   const rollChecks = resolveSandboxCheckValues(judgeChecks, character, companions)
   const preSystemMessages = []
-  const contextMsg = {
-    id: uid(),
-    role: 'system',
-    content: buildSandboxContextMessage(character, companions),
-    ts: Date.now(),
-  }
+  const playerInventory =
+    slotIndex != null && Number.isFinite(slotIndex)
+      ? loadSandboxSlot(slotIndex).playerInventory
+      : undefined
 
   if (rollChecks.length > 0) {
     const rollResult = resolveSandboxSkillChecks(rollChecks, consecutiveFails)
@@ -228,10 +228,11 @@ export async function runSandboxPlayerTurn({
     }
   }
 
-  const systemText = `${buildSandboxGmPrompt(
+  const systemText = `${buildSandboxGmPrompt(character, world)}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
+  const archivedEventsMsg = buildSandboxArchivedEventsMessage(archivedEvents)
+  const stateSnapshotMsg = buildSandboxStateSnapshotMessage(
     character,
     world,
-    archivedEvents,
     relevantNpcs,
     activeCompanions,
     activeFacts,
@@ -242,8 +243,14 @@ export async function runSandboxPlayerTurn({
     slotIndex ?? null,
     actionText,
     lastGmReply,
-  )}\n\n${SANDBOX_PRE_ROLL_ADDENDUM}`
-  const chain = buildSandboxGmApiChain(historyMessages, preSystemMessages, contextMsg)
+    playerInventory,
+  )
+  const chain = buildSandboxGmApiChain(
+    historyMessages,
+    preSystemMessages,
+    archivedEventsMsg,
+    stateSnapshotMsg,
+  )
 
   const onGmComplete =
     slotIndex != null && Number.isFinite(slotIndex)

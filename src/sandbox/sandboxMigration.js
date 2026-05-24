@@ -1,7 +1,7 @@
 /**
  * 当前数据版本号，每次新增字段时 +1
  */
-export const CURRENT_VERSION = 2
+export const CURRENT_VERSION = 3
 
 /**
  * @typedef {import('./sandboxStorage.js').SandboxState} SandboxState
@@ -58,6 +58,20 @@ export function migrateSandboxState(state) {
 
     state.companions = active
     state.archivedCompanions = [...(state.archivedCompanions ?? []), ...archived]
+  }
+
+  if (version < 3) {
+    const inv = state.playerInventory ?? { equipped: [], carried: [] }
+    const hasInv = inv.equipped.length > 0 || inv.carried.length > 0
+    if (!hasInv && Array.isArray(state.character?.items) && state.character.items.length > 0) {
+      state.playerInventory = {
+        equipped: [],
+        carried: state.character.items.map((name) => ({ name, description: '', quantity: 1 })),
+      }
+    }
+    if (state.character) {
+      state.character.items = (state.playerInventory?.carried ?? []).map((i) => i.name)
+    }
   }
 
   state.__version = CURRENT_VERSION
